@@ -39,6 +39,15 @@ CREATE INDEX IF NOT EXISTS idx_attempts_submitted_at ON attempts(submitted_at DE
 ALTER TABLE quizzes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attempts ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies first to allow safe re-runs
+DROP POLICY IF EXISTS "Allow public read access to quizzes" ON quizzes;
+DROP POLICY IF EXISTS "Allow public insert to attempts" ON attempts;
+DROP POLICY IF EXISTS "Allow public read to attempts" ON attempts;
+DROP POLICY IF EXISTS "Allow anon insert to quizzes" ON quizzes;
+DROP POLICY IF EXISTS "Allow anon update to quizzes" ON quizzes;
+DROP POLICY IF EXISTS "Allow anon delete to quizzes" ON quizzes;
+DROP POLICY IF EXISTS "Allow anon delete to attempts" ON attempts;
+
 -- Allow public read access to quizzes so attendees can take them
 CREATE POLICY "Allow public read access to quizzes"
   ON quizzes FOR SELECT
