@@ -174,7 +174,16 @@ export async function insertQuiz(
     if (!error && data) {
       return { ...data, header_image_url, topic_quotas } as Quiz;
     }
-    console.warn("Supabase insert quiz failed, writing to local store:", error?.message);
+    console.error("Supabase insert quiz failed:", error?.message);
+    if (isSupabaseConfigured || process.env.VERCEL) {
+      throw new Error(`Database Error: ${error?.message || "Failed to insert quiz into Supabase"}`);
+    }
+  }
+
+  if (process.env.VERCEL) {
+    throw new Error(
+      "Database not connected: Supabase environment variables are missing on Vercel. Please add SUPABASE_URL and SUPABASE_ANON_KEY in Vercel and click Redeploy."
+    );
   }
 
   const store = getLocalStore();

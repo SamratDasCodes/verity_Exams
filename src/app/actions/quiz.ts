@@ -52,7 +52,11 @@ export async function createQuizAction(
 
   try {
     const createdQuiz = await insertQuiz(cleanTitle, validation.data, headerImageUrl?.trim() || undefined);
-    revalidatePath("/dashboard");
+    try {
+      revalidatePath("/dashboard");
+    } catch {
+      // Ignored outside Next.js request context
+    }
     return { success: true, quiz: createdQuiz };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Database error";
