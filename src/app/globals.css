@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --background: #f3f4f6;
+  --foreground: #1f2937;
+}
+
+body {
+  color: var(--foreground);
+  background-color: var(--background);
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.header-bg {
+  background-color: #0056D2;
+}
+
+.nav-back-bg {
+  background-color: #0045A8;
+}
+
+/* Custom radio button styling matching demo */
+.custom-radio {
+  appearance: none;
+  background-color: #fff;
+  margin: 0;
+  font: inherit;
+  color: currentColor;
+  width: 1.5em;
+  height: 1.5em;
+  border: 2px solid #9ca3af;
+  border-radius: 50%;
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.custom-radio::before {
+  content: "";
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  transform: scale(0);
+  transition: 120ms transform ease-in-out;
+  box-shadow: inset 1em 1em #0056D2;
+}
+
+.custom-radio:checked::before {
+  transform: scale(1);
+}
+
+.custom-radio:checked {
+  border-color: #0056D2;
+}
+
+.option-container.selected {
+  border-color: #0056D2;
+  background-color: #f0f7ff;
+}
+
+/* Progress circle styling */
+.progress-circle {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: conic-gradient(#d9534f 75%, #f3f4f6 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.progress-circle::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: white;
+}
+
+/* Slide-over menu transition */
+.question-menu-drawer {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateX(-100%);
+}
+
+.question-menu-drawer.open {
+  transform: translateX(0);
+}
+
+.menu-overlay-layer {
+  transition: opacity 0.3s ease-in-out;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.menu-overlay-layer.open {
+  opacity: 1;
+  pointer-events: auto;
+}
