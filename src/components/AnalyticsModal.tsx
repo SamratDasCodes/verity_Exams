@@ -269,23 +269,35 @@ export default function AnalyticsModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-scale-in">
-        <div className="w-full max-w-4xl bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4 bg-black/50 backdrop-blur-sm animate-scale-in">
+        <div className="w-full max-w-4xl bg-white border border-gray-200 rounded-2xl sm:rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] sm:max-h-[90vh]">
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50 flex-wrap gap-3">
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-lg font-bold text-gray-800">{currentQuiz.title}</h2>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-[#0056D2] font-semibold border border-blue-200">
-                  {currentQuiz.raw_json.length} Questions in Pool
-                </span>
+          <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-gray-200 bg-gray-50">
+            {/* Top row: Title + Badges on left, Close X pinned to top-right */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base sm:text-lg font-bold text-gray-800 truncate">{currentQuiz.title}</h2>
+                  <span className="text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-[#0056D2] font-semibold border border-blue-200 shrink-0">
+                    {currentQuiz.raw_json.length} Qs in Pool
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5" /> Created {formatDate(currentQuiz.created_at)}
+                </p>
               </div>
-              <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5" /> Created {formatDate(currentQuiz.created_at)}
-              </p>
+
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition shrink-0"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Second row: Action Buttons */}
+            <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
               <button
                 onClick={() => setIsAddQuestionsOpen(true)}
                 className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-[#0056D2] font-semibold text-xs transition flex items-center gap-1.5"
@@ -294,54 +306,50 @@ export default function AnalyticsModal({
                 <span>Add More Questions</span>
               </button>
 
-              <button
-                onClick={fetchAnalytics}
-                disabled={loading}
-                title="Refresh submissions"
-                className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition"
-              >
-                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-[#0056D2]" : ""}`} />
-              </button>
-              <button
-                onClick={() => setIsDeletingQuiz(true)}
-                title="Delete this Question Set"
-                className="p-2 rounded-lg bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-600 transition"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={onClose}
-                className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={fetchAnalytics}
+                  disabled={loading}
+                  title="Refresh submissions"
+                  className="p-1.5 sm:p-2 rounded-lg bg-white sm:bg-gray-100 border border-gray-200 sm:border-transparent hover:bg-gray-200 text-gray-600 transition"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${loading ? "animate-spin text-[#0056D2]" : ""}`} />
+                </button>
+                <button
+                  onClick={() => setIsDeletingQuiz(true)}
+                  title="Delete this Question Set"
+                  className="p-1.5 sm:p-2 rounded-lg bg-white sm:bg-gray-100 border border-gray-200 sm:border-transparent hover:bg-red-50 text-gray-500 hover:text-red-600 transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
           {/* Exam Header Logo Bar */}
-          <div className="px-6 py-2.5 bg-blue-50/50 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2 text-xs">
-            <div className="flex items-center gap-2">
-              <ImageIcon className="w-4 h-4 text-[#0056D2]" />
-              <span className="text-gray-600 font-medium">Exam Heading:</span>
+          <div className="px-4 sm:px-6 py-2.5 bg-blue-50/50 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <ImageIcon className="w-4 h-4 text-[#0056D2] shrink-0" />
+              <span className="text-gray-600 font-medium shrink-0">Exam Heading:</span>
               {currentQuiz.header_image_url ? (
-                <div className="flex items-center gap-2 bg-white px-2 py-0.5 rounded border border-gray-200">
+                <div className="flex items-center gap-1.5 bg-white px-2 py-0.5 rounded border border-gray-200 min-w-0 max-w-[200px] sm:max-w-[240px]">
                   <img
                     src={currentQuiz.header_image_url}
                     alt="Logo"
-                    className="h-4 object-contain"
+                    className="h-4 object-contain shrink-0"
                   />
-                  <span className="text-[11px] text-gray-500 font-mono truncate max-w-[150px]">
+                  <span className="text-[11px] text-gray-500 font-mono truncate">
                     {currentQuiz.header_image_url}
                   </span>
                 </div>
               ) : (
-                <span className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-800 font-semibold">
-                  Question Set Title (&quot;{currentQuiz.title}&quot;)
+                <span className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-800 font-semibold truncate text-[11px]">
+                  Title (&quot;{currentQuiz.title}&quot;)
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center self-end sm:self-auto">
               {!editingHeaderImage ? (
                 <button
                   type="button"
@@ -351,35 +359,35 @@ export default function AnalyticsModal({
                   {currentQuiz.header_image_url ? "Change Logo / Image" : "Set Custom Logo / Image"}
                 </button>
               ) : (
-                <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
                   <input
                     type="text"
                     value={headerImageInput}
                     onChange={(e) => setHeaderImageInput(e.target.value)}
-                    placeholder="/images/generation-logo.png or URL"
-                    className="w-48 bg-white border border-gray-300 rounded px-2 py-0.5 text-xs text-gray-800 focus:outline-none focus:border-[#0056D2]"
+                    placeholder="Image URL"
+                    className="flex-1 sm:w-48 bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:outline-none focus:border-[#0056D2]"
                   />
                   <button
                     type="button"
                     onClick={() => handleSaveHeaderImage("/images/generation-logo.png")}
-                    className="text-[10px] text-blue-700 bg-blue-100 hover:bg-blue-200 px-1.5 py-0.5 rounded"
+                    className="text-[10px] text-blue-700 bg-blue-100 hover:bg-blue-200 px-2 py-1 rounded font-medium"
                   >
-                    Generation Logo
+                    Logo
                   </button>
                   <button
                     type="button"
                     onClick={() => handleSaveHeaderImage("")}
-                    className="text-[10px] text-gray-600 bg-gray-200 hover:bg-gray-300 px-1.5 py-0.5 rounded"
+                    className="text-[10px] text-gray-600 bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded font-medium"
                   >
-                    Use Title
+                    Title
                   </button>
                   <button
                     type="button"
                     disabled={savingHeaderImage}
                     onClick={() => handleSaveHeaderImage()}
-                    className="text-[10px] text-white bg-[#0056D2] hover:bg-[#0045A8] px-2 py-0.5 rounded font-semibold"
+                    className="text-[10px] text-white bg-[#0056D2] hover:bg-[#0045A8] px-2.5 py-1 rounded font-semibold"
                   >
-                    {savingHeaderImage ? "Saving..." : "Save"}
+                    {savingHeaderImage ? "..." : "Save"}
                   </button>
                   <button
                     type="button"
@@ -394,54 +402,58 @@ export default function AnalyticsModal({
           </div>
 
           {/* Share Links & Flexible Count + Timer Bar */}
-          <div className="px-6 py-3 bg-gray-50/70 border-b border-gray-200 flex items-center justify-between flex-wrap gap-3 text-xs">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-gray-600 font-medium flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-[#0056D2]" />
-                Questions:
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={currentQuiz.raw_json.length}
-                value={customCount}
-                onChange={(e) => setCustomCount(parseInt(e.target.value, 10) || 1)}
-                className="w-14 bg-white border border-gray-300 rounded px-1.5 py-1 text-center font-bold text-[#0056D2] focus:outline-none focus:border-[#0056D2]"
-              />
+          <div className="px-4 sm:px-6 py-3 bg-gray-50/70 border-b border-gray-200 space-y-2.5 text-xs">
+            {/* Top row: Questions & Timer Inputs */}
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-[#0056D2]" />
+                  <span className="text-gray-700 font-medium">Questions:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={currentQuiz.raw_json.length}
+                    value={customCount}
+                    onChange={(e) => setCustomCount(parseInt(e.target.value, 10) || 1)}
+                    className="w-12 sm:w-14 bg-white border border-gray-300 rounded px-1.5 py-1 text-center font-bold text-[#0056D2] focus:outline-none focus:border-[#0056D2]"
+                  />
+                </div>
 
-              <span className="text-gray-400">|</span>
+                <div className="h-4 w-px bg-gray-300 hidden sm:block" />
 
-              <span className="text-gray-600 font-medium flex items-center gap-1">
-                <Timer className="w-3.5 h-3.5 text-amber-600" />
-                Timer:
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={180}
-                value={customTime}
-                onChange={(e) => setCustomTime(parseInt(e.target.value, 10) || 1)}
-                className="w-14 bg-white border border-gray-300 rounded px-1.5 py-1 text-center font-bold text-amber-700 focus:outline-none focus:border-amber-600"
-              />
-              <span className="text-gray-600">min</span>
+                <div className="flex items-center gap-1.5">
+                  <Timer className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="text-gray-700 font-medium">Timer:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={customTime}
+                    onChange={(e) => setCustomTime(parseInt(e.target.value, 10) || 1)}
+                    className="w-12 sm:w-14 bg-white border border-gray-300 rounded px-1.5 py-1 text-center font-bold text-amber-700 focus:outline-none focus:border-amber-600"
+                  />
+                  <span className="text-gray-600 text-[11px]">min</span>
+                </div>
+              </div>
+            </div>
 
+            {/* Bottom row: Touch-friendly Copy Buttons */}
+            <div className="flex items-center gap-2 flex-col sm:flex-row">
               <button
                 onClick={() => handleCopyLink(customShareUrl, "custom")}
-                className="px-3 py-1 rounded bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 font-semibold transition flex items-center gap-1"
+                className="w-full sm:flex-1 py-2 sm:py-1.5 px-3 rounded-lg bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 font-semibold transition flex items-center justify-center gap-1.5 text-xs shadow-sm"
               >
                 {copied === "custom" ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>
                   {copied === "custom"
-                    ? "Copied Link!"
+                    ? "Copied Exam Link!"
                     : `Copy Link (${validCustomCount} Qs • ${validCustomTime}m)`}
                 </span>
               </button>
-            </div>
 
-            <div className="flex items-center gap-2">
               <button
                 onClick={() => handleCopyLink(baseUrl, "all")}
-                className="px-2.5 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center gap-1"
+                className="w-full sm:w-auto py-2 sm:py-1.5 px-3 rounded-lg bg-white hover:bg-gray-100 border border-gray-200 text-gray-700 transition flex items-center justify-center gap-1.5 text-xs"
               >
                 {copied === "all" ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copied === "all" ? "Copied!" : `Full Link (All ${currentQuiz.raw_json.length})`}</span>
@@ -450,39 +462,39 @@ export default function AnalyticsModal({
           </div>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-3 gap-3 p-6 pb-4 border-b border-gray-200 bg-gray-50/40">
-            <div className="p-3.5 rounded-xl bg-white border border-gray-200 flex items-center gap-3">
-              <div className="p-2.5 rounded-lg bg-blue-50 text-[#0056D2]">
-                <Users className="w-5 h-5" />
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 p-3 sm:p-6 pb-3 sm:pb-4 border-b border-gray-200 bg-gray-50/40">
+            <div className="p-2 sm:p-3.5 rounded-xl bg-white border border-gray-200 flex flex-col sm:flex-row items-center sm:items-center text-center sm:text-left gap-1 sm:gap-3">
+              <div className="p-1.5 sm:p-2.5 rounded-lg bg-blue-50 text-[#0056D2] shrink-0">
+                <Users className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <div>
-                <p className="text-xs text-gray-500 font-medium">Completed Submissions</p>
-                <p className="text-xl font-bold text-gray-800">{totalAttendees}</p>
+              <div className="min-w-0">
+                <p className="text-[10px] sm:text-xs text-gray-500 font-medium truncate">Submissions</p>
+                <p className="text-sm sm:text-xl font-bold text-gray-800">{totalAttendees}</p>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-white border border-gray-200 flex items-center gap-3">
-              <div className="p-2.5 rounded-lg bg-green-50 text-green-700">
-                <TrendingUp className="w-5 h-5" />
+            <div className="p-2 sm:p-3.5 rounded-xl bg-white border border-gray-200 flex flex-col sm:flex-row items-center sm:items-center text-center sm:text-left gap-1 sm:gap-3">
+              <div className="p-1.5 sm:p-2.5 rounded-lg bg-green-50 text-green-700 shrink-0">
+                <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <div>
-                <p className="text-xs text-gray-500 font-medium">Average Score</p>
-                <p className="text-xl font-bold text-gray-800">
-                  {avgScore} <span className="text-xs font-normal text-gray-500">({avgPercentage}%)</span>
+              <div className="min-w-0">
+                <p className="text-[10px] sm:text-xs text-gray-500 font-medium truncate">Avg Score</p>
+                <p className="text-sm sm:text-xl font-bold text-gray-800">
+                  {avgScore} <span className="text-[10px] sm:text-xs font-normal text-gray-500">({avgPercentage}%)</span>
                 </p>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-white border border-gray-200 flex items-center gap-3">
-              <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600">
-                <Award className="w-5 h-5" />
+            <div className="p-2 sm:p-3.5 rounded-xl bg-white border border-gray-200 flex flex-col sm:flex-row items-center sm:items-center text-center sm:text-left gap-1 sm:gap-3">
+              <div className="p-1.5 sm:p-2.5 rounded-lg bg-amber-50 text-amber-600 shrink-0">
+                <Award className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <div>
-                <p className="text-xs text-gray-500 font-medium">Top Score</p>
-                <p className="text-xl font-bold text-gray-800">
-                  {highestAttempt ? highestAttempt.score : 0}{" "}
-                  <span className="text-xs font-normal text-gray-500">
-                    / {highestAttempt ? (highestAttempt.max_score || sampleMaxScore) : sampleMaxScore}
+              <div className="min-w-0">
+                <p className="text-[10px] sm:text-xs text-gray-500 font-medium truncate">Top Score</p>
+                <p className="text-sm sm:text-xl font-bold text-gray-800">
+                  {highestAttempt ? highestAttempt.score : 0}
+                  <span className="text-[10px] sm:text-xs font-normal text-gray-500">
+                    /{highestAttempt ? (highestAttempt.max_score || sampleMaxScore) : sampleMaxScore}
                   </span>
                 </p>
               </div>
@@ -490,38 +502,40 @@ export default function AnalyticsModal({
           </div>
 
           {/* Tab Navigation: Completed Submissions vs. Live Proctoring Monitor */}
-          <div className="px-6 pt-4 flex items-center gap-3 border-b border-gray-200 bg-white">
+          <div className="px-3 sm:px-6 pt-2 sm:pt-4 flex items-center border-b border-gray-200 bg-white">
             <button
               onClick={() => setActiveTab("completed")}
-              className={`pb-3 font-semibold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 ${
+              className={`flex-1 sm:flex-initial pb-2.5 sm:pb-3 font-semibold text-xs sm:text-sm border-b-2 transition flex items-center justify-center gap-1.5 sm:gap-2 ${
                 activeTab === "completed"
                   ? "border-[#0056D2] text-[#0056D2]"
                   : "border-transparent text-gray-500 hover:text-gray-800"
               }`}
             >
-              <Users className="w-4 h-4" />
-              <span>Completed Submissions ({attempts.length})</span>
+              <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span className="sm:hidden">Submissions ({attempts.length})</span>
+              <span className="hidden sm:inline">Completed Submissions ({attempts.length})</span>
             </button>
 
             <button
               onClick={() => setActiveTab("live_monitor")}
-              className={`pb-3 font-semibold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 ${
+              className={`flex-1 sm:flex-initial pb-2.5 sm:pb-3 font-semibold text-xs sm:text-sm border-b-2 transition flex items-center justify-center gap-1.5 sm:gap-2 ${
                 activeTab === "live_monitor"
                   ? "border-emerald-600 text-emerald-700"
                   : "border-transparent text-gray-500 hover:text-gray-800"
               }`}
             >
-              <span className="relative flex h-2.5 w-2.5">
+              <span className="relative flex h-2 w-2 sm:h-2.5 sm:w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                <span className="relative inline-flex rounded-full h-2 w-2 sm:h-2.5 sm:w-2.5 bg-emerald-500" />
               </span>
-              <span>Live Classroom Monitor ({activeLiveCount} Taking Exam)</span>
+              <span className="sm:hidden">Live ({activeLiveCount})</span>
+              <span className="hidden sm:inline">Live Classroom Monitor ({activeLiveCount} Taking Exam)</span>
             </button>
           </div>
 
           {/* Tab 1: Completed Attendees Table */}
           {activeTab === "completed" && (
-            <div className="p-6 overflow-y-auto flex-1">
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div>
                   <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -563,83 +577,145 @@ export default function AnalyticsModal({
                   </button>
                 </div>
               ) : (
-                <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-50 text-[11px] text-gray-500 uppercase tracking-wider border-b border-gray-200">
-                      <tr>
-                        <th className="py-3 px-4">Trainee Name</th>
-                        <th className="py-3 px-4">Auto-Graded Marks</th>
-                        <th className="py-3 px-4">Performance</th>
-                        <th className="py-3 px-4 text-center">Answer Sheet</th>
-                        <th className="py-3 px-4 text-right">Submitted At</th>
-                        <th className="py-3 px-4 text-center">Delete</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {attempts.map((attempt) => {
-                        const max = attempt.max_score || sampleMaxScore;
-                        const pct = max > 0 ? Math.round((attempt.score / max) * 100) : 0;
+                <>
+                  {/* Mobile Cards List (< md) */}
+                  <div className="block md:hidden space-y-3">
+                    {attempts.map((attempt) => {
+                      const max = attempt.max_score || sampleMaxScore;
+                      const pct = max > 0 ? Math.round((attempt.score / max) * 100) : 0;
+                      let badgeColor = "bg-red-50 text-red-700 border-red-200";
+                      if (pct >= 80) badgeColor = "bg-green-50 text-green-700 border-green-200";
+                      else if (pct >= 50) badgeColor = "bg-amber-50 text-amber-700 border-amber-200";
 
-                        let badgeColor = "bg-red-50 text-red-700 border-red-200";
-                        if (pct >= 80) {
-                          badgeColor = "bg-green-50 text-green-700 border-green-200";
-                        } else if (pct >= 50) {
-                          badgeColor = "bg-amber-50 text-amber-700 border-amber-200";
-                        }
-
-                        return (
-                          <tr
-                            key={attempt.id}
-                            className="hover:bg-gray-50/70 transition cursor-pointer"
-                            onClick={() => setInspectedAttempt(attempt)}
-                          >
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-full bg-blue-50 text-[#0056D2] font-semibold text-xs flex items-center justify-center border border-blue-200">
-                                  {attempt.trainee_name.charAt(0).toUpperCase()}
-                                </div>
-                                <span className="font-semibold text-gray-800">{attempt.trainee_name}</span>
+                      return (
+                        <div
+                          key={attempt.id}
+                          className="p-3.5 rounded-xl border border-gray-200 bg-white shadow-sm space-y-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-8 h-8 rounded-full bg-blue-50 text-[#0056D2] font-bold text-xs flex items-center justify-center border border-blue-200 shrink-0">
+                                {attempt.trainee_name.charAt(0).toUpperCase()}
                               </div>
-                            </td>
-                            <td className="py-3 px-4">
-                              <span className="font-semibold text-gray-900">{attempt.score}</span>
-                              <span className="text-gray-500 text-xs font-normal"> / {max}</span>
-                            </td>
-                            <td className="py-3 px-4">
-                              <span className={`text-xs px-2.5 py-0.5 rounded-full border font-semibold ${badgeColor}`}>
+                              <div className="min-w-0">
+                                <h4 className="font-bold text-gray-800 text-sm truncate">{attempt.trainee_name}</h4>
+                                <p className="text-[10px] text-gray-400 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {formatDate(attempt.submitted_at)}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="font-bold text-sm text-gray-900">
+                                {attempt.score} <span className="text-gray-400 text-xs font-normal">/ {max}</span>
+                              </span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${badgeColor}`}>
                                 {pct}%
                               </span>
-                            </td>
-                            <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                onClick={() => setInspectedAttempt(attempt)}
-                                className="px-2.5 py-1 rounded bg-[#0056D2]/10 hover:bg-[#0056D2]/20 text-[#0056D2] font-semibold text-xs transition inline-flex items-center gap-1 border border-[#0056D2]/20"
-                              >
-                                <FileText className="w-3.5 h-3.5" />
-                                <span>View Answers</span>
-                              </button>
-                            </td>
-                            <td className="py-3 px-4 text-right text-xs text-gray-500">
-                              <div className="flex items-center justify-end gap-1">
-                                <Clock className="w-3 h-3 text-gray-400" />
-                                {formatDate(attempt.submitted_at)}
-                              </div>
-                            </td>
-                            <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                onClick={() => setAttemptToDelete(attempt)}
-                                title={`Delete response for ${attempt.trainee_name}`}
-                                className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+                            <button
+                              onClick={() => setInspectedAttempt(attempt)}
+                              className="flex-1 py-1.5 px-3 rounded-lg bg-[#0056D2]/10 hover:bg-[#0056D2]/20 text-[#0056D2] font-semibold text-xs transition flex items-center justify-center gap-1.5"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>View Answers</span>
+                            </button>
+                            <button
+                              onClick={() => setAttemptToDelete(attempt)}
+                              title="Delete response"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 border border-gray-200 transition"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Table (md and up) */}
+                  <div className="hidden md:block border border-gray-200 rounded-xl overflow-hidden bg-white">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-gray-50 text-[11px] text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                        <tr>
+                          <th className="py-3 px-4">Trainee Name</th>
+                          <th className="py-3 px-4">Auto-Graded Marks</th>
+                          <th className="py-3 px-4">Performance</th>
+                          <th className="py-3 px-4 text-center">Answer Sheet</th>
+                          <th className="py-3 px-4 text-right">Submitted At</th>
+                          <th className="py-3 px-4 text-center">Delete</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {attempts.map((attempt) => {
+                          const max = attempt.max_score || sampleMaxScore;
+                          const pct = max > 0 ? Math.round((attempt.score / max) * 100) : 0;
+
+                          let badgeColor = "bg-red-50 text-red-700 border-red-200";
+                          if (pct >= 80) {
+                            badgeColor = "bg-green-50 text-green-700 border-green-200";
+                          } else if (pct >= 50) {
+                            badgeColor = "bg-amber-50 text-amber-700 border-amber-200";
+                          }
+
+                          return (
+                            <tr
+                              key={attempt.id}
+                              className="hover:bg-gray-50/70 transition cursor-pointer"
+                              onClick={() => setInspectedAttempt(attempt)}
+                            >
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-8 h-8 rounded-full bg-blue-50 text-[#0056D2] font-semibold text-xs flex items-center justify-center border border-blue-200">
+                                    {attempt.trainee_name.charAt(0).toUpperCase()}
+                                  </div>
+                                  <span className="font-semibold text-gray-800">{attempt.trainee_name}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="font-semibold text-gray-900">{attempt.score}</span>
+                                <span className="text-gray-500 text-xs font-normal"> / {max}</span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className={`text-xs px-2.5 py-0.5 rounded-full border font-semibold ${badgeColor}`}>
+                                  {pct}%
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  onClick={() => setInspectedAttempt(attempt)}
+                                  className="px-2.5 py-1 rounded bg-[#0056D2]/10 hover:bg-[#0056D2]/20 text-[#0056D2] font-semibold text-xs transition inline-flex items-center gap-1 border border-[#0056D2]/20"
+                                >
+                                  <FileText className="w-3.5 h-3.5" />
+                                  <span>View Answers</span>
+                                </button>
+                              </td>
+                              <td className="py-3 px-4 text-right text-xs text-gray-500">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Clock className="w-3 h-3 text-gray-400" />
+                                  {formatDate(attempt.submitted_at)}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  onClick={() => setAttemptToDelete(attempt)}
+                                  title={`Delete response for ${attempt.trainee_name}`}
+                                  className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -748,85 +824,85 @@ export default function AnalyticsModal({
 
       {/* Trainee Answer Inspection Modal */}
       {inspectedAttempt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-scale-in">
-          <div className="w-full max-w-3xl bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-scale-in">
+          <div className="w-full max-w-3xl bg-white border border-gray-200 rounded-2xl sm:rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] sm:max-h-[92vh]">
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <button
                   onClick={() => setInspectedAttempt(null)}
-                  className="p-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 transition"
+                  className="p-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 transition shrink-0"
                   title="Back to Attendees List"
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-gray-800">
-                      {inspectedAttempt.trainee_name}&apos;s Answer Sheet
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm sm:text-base font-bold text-gray-800 truncate">
+                      {inspectedAttempt.trainee_name}&apos;s Answers
                     </h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-[#0056D2] font-semibold border border-blue-200">
-                      {inspectedAttempt.score} / {inspectedAttempt.max_score || sampleMaxScore} Correct
+                    <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-blue-50 text-[#0056D2] font-semibold border border-blue-200 shrink-0">
+                      {inspectedAttempt.score}/{inspectedAttempt.max_score || sampleMaxScore} Correct
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Submitted on {formatDate(inspectedAttempt.submitted_at)}
+                  <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
+                    {formatDate(inspectedAttempt.submitted_at)}
                   </p>
                 </div>
               </div>
 
               <button
                 onClick={() => setInspectedAttempt(null)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition"
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Filter Tabs Bar */}
-            <div className="px-6 py-3 bg-white border-b border-gray-200 flex items-center justify-between flex-wrap gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-500 font-medium flex items-center gap-1">
+            <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-white border-b border-gray-200 flex items-center justify-between flex-wrap gap-2 text-xs overflow-x-auto no-scrollbar">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <span className="text-gray-500 font-medium hidden sm:flex items-center gap-1">
                   <Filter className="w-3.5 h-3.5" /> Filter:
                 </span>
 
                 <button
                   onClick={() => setFilterType("all")}
-                  className={`px-3 py-1 rounded-full font-semibold transition ${
+                  className={`px-2.5 sm:px-3 py-1 rounded-full font-semibold text-xs transition ${
                     filterType === "all"
                       ? "bg-[#0056D2] text-white shadow-sm"
                       : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                   }`}
                 >
-                  All Questions ({activeBreakdown.length})
+                  All ({activeBreakdown.length})
                 </button>
 
                 <button
                   onClick={() => setFilterType("wrong")}
-                  className={`px-3 py-1 rounded-full font-semibold transition flex items-center gap-1 ${
+                  className={`px-2.5 sm:px-3 py-1 rounded-full font-semibold text-xs transition flex items-center gap-1 ${
                     filterType === "wrong"
                       ? "bg-red-600 text-white shadow-sm"
                       : "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
                   }`}
                 >
-                  <XCircle className="w-3.5 h-3.5" />
-                  <span>Wrong Answers ({wrongCount})</span>
+                  <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  <span>Wrong ({wrongCount})</span>
                 </button>
 
                 <button
                   onClick={() => setFilterType("correct")}
-                  className={`px-3 py-1 rounded-full font-semibold transition flex items-center gap-1 ${
+                  className={`px-2.5 sm:px-3 py-1 rounded-full font-semibold text-xs transition flex items-center gap-1 ${
                     filterType === "correct"
                       ? "bg-green-600 text-white shadow-sm"
                       : "bg-green-50 text-green-700 border border-green-200 hover:bg-green-100"
                   }`}
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Correct Answers ({correctCount})</span>
+                  <CheckCircle2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  <span>Correct ({correctCount})</span>
                 </button>
               </div>
 
-              <div className="text-xs font-semibold text-gray-600">
+              <div className="text-xs font-semibold text-gray-600 shrink-0">
                 Score:{" "}
                 <span className="text-[#0056D2]">
                   {inspectedAttempt.max_score
@@ -838,7 +914,7 @@ export default function AnalyticsModal({
             </div>
 
             {/* Questions List */}
-            <div className="p-6 overflow-y-auto flex-1 space-y-4 bg-gray-50/50">
+            <div className="p-3.5 sm:p-6 overflow-y-auto flex-1 space-y-3.5 sm:space-y-4 bg-gray-50/50">
               {activeBreakdown.length === 0 ? (
                 <div className="py-12 text-center text-gray-500 bg-white border border-gray-200 rounded-xl p-6">
                   <FileText className="w-8 h-8 text-gray-400 mx-auto mb-2" />

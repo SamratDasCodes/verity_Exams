@@ -695,7 +695,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                     <label
                       key={idx}
                       onClick={() => handleSelectOption(option)}
-                      className={`option-container flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors ${
+                      className={`option-container flex items-center gap-3.5 sm:gap-4 p-3.5 sm:p-4 border border-gray-300 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors ${
                         isSelected ? "selected" : ""
                       }`}
                     >
@@ -705,10 +705,11 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                         value={option}
                         checked={isSelected}
                         onChange={() => handleSelectOption(option)}
-                        className="custom-radio mr-4 focus:ring-0"
+                        className="custom-radio shrink-0 focus:ring-0"
                       />
-                      <span className="text-gray-700 text-base">
-                        <strong className="mr-2">{optId}.</strong> {option}
+                      <span className="text-gray-700 text-sm sm:text-base leading-snug">
+                        <strong className="font-bold text-gray-900 mr-2.5">{optId}.</strong>
+                        <span>{option}</span>
                       </span>
                     </label>
                   );
