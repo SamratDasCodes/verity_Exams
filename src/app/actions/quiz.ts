@@ -13,6 +13,7 @@ import {
   recordStudentHeartbeat,
   fetchLiveStudentSessions,
   updateQuizHeaderImage,
+  updateQuizCategoryAndTags,
   deleteQuiz,
   deleteAttempt,
   clearAttemptsForQuiz,
@@ -33,7 +34,9 @@ import { validateQuestionJson } from "@/lib/validator";
 export async function createQuizAction(
   title: string,
   rawJsonText: string,
-  headerImageUrl?: string
+  headerImageUrl?: string,
+  category?: string,
+  tags?: string[]
 ): Promise<{ success: boolean; quiz?: Quiz; error?: string }> {
   const isAuth = await isAuthenticated();
   if (!isAuth) {
@@ -51,7 +54,16 @@ export async function createQuizAction(
   }
 
   try {
-    const createdQuiz = await insertQuiz(cleanTitle, validation.data, headerImageUrl?.trim() || undefined);
+    const cleanCategory = category?.trim() || undefined;
+    const cleanTags = tags && tags.length > 0 ? tags.map((t) => t.trim()).filter(Boolean) : undefined;
+    const createdQuiz = await insertQuiz(
+      cleanTitle,
+      validation.data,
+      headerImageUrl?.trim() || undefined,
+      undefined,
+      cleanCategory,
+      cleanTags
+    );
     try {
       revalidatePath("/dashboard");
     } catch {
@@ -64,7 +76,34 @@ export async function createQuizAction(
   }
 }
 
-// 1b. Append Additional Questions to Existing Quiz (Admin only)
+// 1b. Update Quiz Category and Tags (Admin only)
+export async function updateQuizCategoryAndTagsAction(
+  quizId: string,
+  category?: string,
+  tags?: string[]
+): Promise<{ success: boolean; quiz?: Quiz; error?: string }> {
+  const isAuth = await isAuthenticated();
+  if (!isAuth) {
+    return { success: false, error: "Unauthorized. Please log in with the admin PIN." };
+  }
+
+  try {
+    const cleanCategory = category?.trim() || undefined;
+    const cleanTags = tags ? tags.map((t) => t.trim()).filter(Boolean) : undefined;
+    const updated = await updateQuizCategoryAndTags(quizId, cleanCategory, cleanTags);
+    try {
+      revalidatePath("/dashboard");
+    } catch {
+      // Ignored outside Next.js request context
+    }
+    return { success: true, quiz: updated };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Database error";
+    return { success: false, error: `Failed to update category and tags: ${message}` };
+  }
+}
+
+// 1c. Append Additional Questions to Existing Quiz (Admin only)
 export async function appendQuestionsAction(
   quizId: string,
   rawJsonText: string
@@ -483,15 +522,24 @@ export async function createCombinedQuizAction(params: {
 
   try {
     const rawQuestions: QuestionItem[] = [];
+    const sourceCategories = new Set<string>();
+    const sourceTags = new Set<string>();
+    sourceTags.add("Combined");
 
     for (const id of sourceQuizIds) {
       const q = await fetchQuizById(id);
-      if (q && Array.isArray(q.raw_json)) {
-        for (const item of q.raw_json) {
-          rawQuestions.push({
-            ...item,
-            topic: item.topic || q.title, // Tag with parent quiz title if not already tagged
-          });
+      if (q) {
+        if (q.category && q.category.trim()) sourceCategories.add(q.category.trim());
+        q.tags?.forEach((t) => {
+          if (t && t.trim()) sourceTags.add(t.trim());
+        });
+        if (Array.isArray(q.raw_json)) {
+          for (const item of q.raw_json) {
+            rawQuestions.push({
+              ...item,
+              topic: item.topic || q.title, // Tag with parent quiz title if not already tagged
+            });
+          }
         }
       }
     }
@@ -519,11 +567,16 @@ export async function createCombinedQuizAction(params: {
 
     const hasQuotas = topicQuotas && Object.values(topicQuotas).some((v) => v > 0);
 
+    const mergedCategory = sourceCategories.size === 1 ? Array.from(sourceCategories)[0] : undefined;
+    const mergedTags = Array.from(sourceTags);
+
     const newQuiz = await insertQuiz(
       title.trim(),
       finalQuestions,
       headerImageUrl?.trim() || undefined,
-      hasQuotas ? topicQuotas : undefined
+      hasQuotas ? topicQuotas : undefined,
+      mergedCategory,
+      mergedTags
     );
 
     try {

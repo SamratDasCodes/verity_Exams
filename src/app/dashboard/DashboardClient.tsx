@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Plus,
   BarChart3,
@@ -20,6 +20,10 @@ import {
   FileText,
   Layers,
   Lightbulb,
+  Search,
+  Folder,
+  Tag,
+  Filter,
 } from "lucide-react";
 import { logoutAdmin } from "@/app/actions/auth";
 import { deleteQuizAction } from "@/app/actions/quiz";
@@ -46,6 +50,61 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
   const [customCounts, setCustomCounts] = useState<Record<string, number>>({});
   const [quizToDelete, setQuizToDelete] = useState<QuizWithStats | Quiz | null>(null);
   const [deletingQuiz, setDeletingQuiz] = useState(false);
+
+  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const allCategories = useMemo(() => {
+    const cats = new Set<string>();
+    quizzes.forEach((q) => {
+      if (q.category && q.category.trim()) cats.add(q.category.trim());
+    });
+    return Array.from(cats).sort();
+  }, [quizzes]);
+
+  const allTags = useMemo(() => {
+    const tgs = new Set<string>();
+    quizzes.forEach((q) => {
+      q.tags?.forEach((t) => {
+        if (t && t.trim()) tgs.add(t.trim());
+      });
+    });
+    return Array.from(tgs).sort();
+  }, [quizzes]);
+
+  const uncategorizedCount = useMemo(() => {
+    return quizzes.filter((q) => !q.category || !q.category.trim()).length;
+  }, [quizzes]);
+
+  const filteredQuizzes = useMemo(() => {
+    return quizzes.filter((q) => {
+      // Category filter
+      if (selectedCategory !== "ALL") {
+        if (selectedCategory === "UNCATEGORIZED") {
+          if (q.category && q.category.trim()) return false;
+        } else {
+          if (q.category !== selectedCategory) return false;
+        }
+      }
+
+      // Tag filter
+      if (selectedTag) {
+        if (!q.tags || !q.tags.includes(selectedTag)) return false;
+      }
+
+      // Search query (Title, Category, Tags)
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim();
+        const matchTitle = q.title.toLowerCase().includes(query);
+        const matchCat = Boolean(q.category && q.category.toLowerCase().includes(query));
+        const matchTag = Boolean(q.tags && q.tags.some((t) => t.toLowerCase().includes(query)));
+        if (!matchTitle && !matchCat && !matchTag) return false;
+      }
+
+      return true;
+    });
+  }, [quizzes, selectedCategory, selectedTag, searchQuery]);
 
   const handleQuizDeleted = (deletedQuizId: string) => {
     setQuizzes((prev) => prev.filter((q) => q.id !== deletedQuizId));
@@ -87,6 +146,9 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
               ...q,
               title: updatedQuiz.title,
               raw_json: updatedQuiz.raw_json,
+              header_image_url: updatedQuiz.header_image_url,
+              category: updatedQuiz.category,
+              tags: updatedQuiz.tags,
             }
           : q
       )
@@ -245,6 +307,151 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
           </div>
         </div>
 
+        {/* Category Tabs & Omni-Search Panel (Only if quizzes exist) */}
+        {quizzes.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-3">
+            {/* Top Row: Search Input & Active Filters Summary */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Omni-Search Input */}
+              <div className="relative flex-1 max-w-md">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by title, subject, or tag (#Grade-10)..."
+                  className="w-full bg-gray-50 border border-gray-300 rounded-xl pl-9 pr-8 py-2 text-xs text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-[#0056D2] focus:bg-white transition"
+                />
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              {/* Filter Status */}
+              <div className="text-xs text-gray-500 flex items-center gap-2">
+                <span>
+                  Showing <strong>{filteredQuizzes.length}</strong> of {quizzes.length} sets
+                </span>
+                {(selectedCategory !== "ALL" || selectedTag || searchQuery) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory("ALL");
+                      setSelectedTag(null);
+                      setSearchQuery("");
+                    }}
+                    className="text-[11px] text-[#0056D2] font-semibold hover:underline"
+                  >
+                    Reset filters
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Category Tabs (Primary Filter) */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+              <button
+                type="button"
+                onClick={() => setSelectedCategory("ALL")}
+                className={`px-3 py-1.5 rounded-xl font-semibold transition whitespace-nowrap flex items-center gap-1.5 ${
+                  selectedCategory === "ALL"
+                    ? "bg-[#0056D2] text-white shadow-sm"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                <span>All Sets</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${selectedCategory === "ALL" ? "bg-white/20 text-white" : "bg-gray-200 text-gray-700"}`}>
+                  {quizzes.length}
+                </span>
+              </button>
+
+              {allCategories.map((cat) => {
+                const count = quizzes.filter((q) => q.category === cat).length;
+                const isSelected = selectedCategory === cat;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setSelectedCategory(isSelected ? "ALL" : cat)}
+                    className={`px-3 py-1.5 rounded-xl font-semibold transition whitespace-nowrap flex items-center gap-1.5 ${
+                      isSelected
+                        ? "bg-[#0056D2] text-white shadow-sm"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    <Folder className="w-3 h-3" />
+                    <span>{cat}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isSelected ? "bg-white/20 text-white" : "bg-gray-200 text-gray-700"}`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {uncategorizedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory(selectedCategory === "UNCATEGORIZED" ? "ALL" : "UNCATEGORIZED")}
+                  className={`px-3 py-1.5 rounded-xl font-semibold transition whitespace-nowrap flex items-center gap-1.5 ${
+                    selectedCategory === "UNCATEGORIZED"
+                      ? "bg-[#0056D2] text-white shadow-sm"
+                      : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                  }`}
+                >
+                  <span>Uncategorized</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${selectedCategory === "UNCATEGORIZED" ? "bg-white/20 text-white" : "bg-gray-200 text-gray-700"}`}>
+                    {uncategorizedCount}
+                  </span>
+                </button>
+              )}
+            </div>
+
+            {/* Tag Filter Sub-bar (Secondary Filter) */}
+            {allTags.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pt-2 border-t border-gray-100 text-xs">
+                <span className="text-[11px] font-semibold text-gray-400 flex items-center gap-1 shrink-0">
+                  <Tag className="w-3 h-3 text-amber-500" />
+                  Filter by Tag:
+                </span>
+
+                {allTags.map((t) => {
+                  const isSelected = selectedTag === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setSelectedTag(isSelected ? null : t)}
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition whitespace-nowrap border ${
+                        isSelected
+                          ? "bg-amber-500 text-white border-amber-500 font-bold shadow-sm"
+                          : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      #{t}
+                    </button>
+                  );
+                })}
+
+                {selectedTag && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTag(null)}
+                    className="text-[10px] text-red-500 hover:underline font-semibold ml-1 shrink-0"
+                  >
+                    Clear tag
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Question Sets List or Grid */}
         {quizzes.length === 0 ? (
           <div className="border border-dashed border-gray-300 rounded-xl p-12 text-center bg-white shadow-sm">
@@ -260,6 +467,27 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
               className="mt-4 px-4 py-2 rounded-lg bg-[#0056D2] hover:bg-[#0045A8] text-white text-xs font-semibold shadow transition inline-flex items-center gap-1.5"
             >
               <Plus className="w-4 h-4" /> Create First Question Set
+            </button>
+          </div>
+        ) : filteredQuizzes.length === 0 ? (
+          <div className="border border-dashed border-gray-300 rounded-xl p-10 text-center bg-white shadow-sm">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-2.5">
+              <Filter className="w-5 h-5" />
+            </div>
+            <h3 className="text-sm font-bold text-gray-800">No question sets match your filters</h3>
+            <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
+              Try searching for something else or clearing your category and tag filters.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCategory("ALL");
+                setSelectedTag(null);
+                setSearchQuery("");
+              }}
+              className="mt-3 px-3.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold transition"
+            >
+              Reset all filters
             </button>
           </div>
         ) : viewMode === "list" ? (
@@ -281,7 +509,7 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {quizzes.map((quiz) => {
+                    {filteredQuizzes.map((quiz) => {
                       const questionCount = quiz.raw_json?.length || 0;
                       const currentCustomCount = customCounts[quiz.id] || Math.min(20, questionCount);
                       const isCustomCopied = copiedId === `${quiz.id}_${currentCustomCount}`;
@@ -293,20 +521,39 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
                           onClick={() => setSelectedQuizForAnalytics(quiz)}
                           className="hover:bg-blue-50/40 transition cursor-pointer group"
                         >
-                          {/* Question Set Title & Date */}
+                          {/* Question Set Title, Category, Tags & Date */}
                           <td className="py-3.5 px-4">
                             <div className="flex items-center gap-3">
                               <div className="w-9 h-9 rounded-lg bg-blue-50 text-[#0056D2] flex items-center justify-center border border-blue-200 shrink-0 font-bold text-sm">
                                 <FileText className="w-4 h-4" />
                               </div>
                               <div className="min-w-0">
-                                <h4 className="font-bold text-gray-800 group-hover:text-[#0056D2] transition truncate text-sm">
-                                  {quiz.title}
-                                </h4>
-                                <p className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
-                                  <Calendar className="w-3 h-3" />
-                                  Created {formatDate(quiz.created_at)}
-                                </p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h4 className="font-bold text-gray-800 group-hover:text-[#0056D2] transition truncate text-sm">
+                                    {quiz.title}
+                                  </h4>
+                                  {quiz.category && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#0056D2] bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded-md shrink-0">
+                                      <Folder className="w-2.5 h-2.5" />
+                                      {quiz.category}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  <p className="text-[11px] text-gray-400 flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" />
+                                    Created {formatDate(quiz.created_at)}
+                                  </p>
+                                  {quiz.tags && quiz.tags.length > 0 && (
+                                    <div className="flex items-center gap-1 flex-wrap">
+                                      {quiz.tags.map((t) => (
+                                        <span key={t} className="text-[10px] text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.2 rounded-full font-medium">
+                                          #{t}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -430,7 +677,7 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
 
             {/* Mobile Cards: Visible ONLY on mobile (< md) with proper spacing */}
             <div className="block md:hidden space-y-4">
-              {quizzes.map((quiz) => {
+              {filteredQuizzes.map((quiz) => {
                 const questionCount = quiz.raw_json?.length || 0;
                 const currentCustomCount = customCounts[quiz.id] || Math.min(20, questionCount);
                 const isCustomCopied = copiedId === `${quiz.id}_${currentCustomCount}`;
@@ -442,20 +689,39 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
                     onClick={() => setSelectedQuizForAnalytics(quiz)}
                     className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm hover:shadow transition active:scale-[0.99] cursor-pointer flex flex-col justify-between space-y-3.5"
                   >
-                    {/* Top Row: Title, Date, and Delete Button */}
+                    {/* Top Row: Title, Category, Tags, Date, and Delete Button */}
                     <div className="flex items-start justify-between gap-2.5">
                       <div className="flex items-start gap-2.5 min-w-0">
                         <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#0056D2] flex items-center justify-center border border-blue-200 shrink-0 font-bold mt-0.5">
                           <FileText className="w-4 h-4" />
                         </div>
                         <div className="min-w-0">
-                          <h3 className="text-base font-bold text-gray-800 leading-snug break-words">
-                            {quiz.title}
-                          </h3>
-                          <p className="text-[11px] text-gray-400 flex items-center gap-1 mt-1">
-                            <Calendar className="w-3 h-3" />
-                            Created {formatDate(quiz.created_at)}
-                          </p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-base font-bold text-gray-800 leading-snug break-words">
+                              {quiz.title}
+                            </h3>
+                            {quiz.category && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#0056D2] bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded-md shrink-0">
+                                <Folder className="w-2.5 h-2.5" />
+                                {quiz.category}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <p className="text-[11px] text-gray-400 flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              Created {formatDate(quiz.created_at)}
+                            </p>
+                            {quiz.tags && quiz.tags.length > 0 && (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {quiz.tags.map((t) => (
+                                  <span key={t} className="text-[10px] text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.2 rounded-full font-medium">
+                                    #{t}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -561,7 +827,7 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
           /* CARDS / GRID VIEW                                         */
           /* ========================================================= */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {quizzes.map((quiz) => {
+            {filteredQuizzes.map((quiz) => {
               const questionCount = quiz.raw_json?.length || 0;
               const isCopied = copiedId === quiz.id;
               const currentCustomCount = customCounts[quiz.id] || Math.min(20, questionCount);
@@ -612,10 +878,29 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
                       </div>
                     </div>
 
-                    {/* Title */}
-                    <h3 className="text-base font-bold text-gray-800 group-hover:text-[#0056D2] transition line-clamp-2 mb-2">
-                      {quiz.title}
-                    </h3>
+                    {/* Title, Category & Tags */}
+                    <div className="mb-2">
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                        {quiz.category && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#0056D2] bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded-md shrink-0">
+                            <Folder className="w-2.5 h-2.5" />
+                            {quiz.category}
+                          </span>
+                        )}
+                        {quiz.tags && quiz.tags.length > 0 && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {quiz.tags.map((t) => (
+                              <span key={t} className="text-[10px] text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.2 rounded-full font-medium">
+                                #{t}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <h3 className="text-base font-bold text-gray-800 group-hover:text-[#0056D2] transition line-clamp-2">
+                        {quiz.title}
+                      </h3>
+                    </div>
                   </div>
 
                   {/* Flexible Count Control Bar */}
@@ -705,6 +990,8 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
         onClose={() => setIsCreateOpen(false)}
         onQuizCreated={handleQuizCreated}
         serverIp={serverIp}
+        existingCategories={allCategories}
+        existingTags={allTags}
       />
 
       <AnalyticsModal

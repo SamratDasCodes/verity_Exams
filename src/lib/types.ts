@@ -26,6 +26,8 @@ export interface Quiz {
   time_limit_minutes?: number;
   header_image_url?: string;
   topic_quotas?: Record<string, number>;
+  category?: string;
+  tags?: string[];
 }
 
 export interface QuizPublic {

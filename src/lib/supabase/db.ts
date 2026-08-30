@@ -147,13 +147,17 @@ export async function insertQuiz(
   title: string,
   raw_json: QuestionItem[],
   header_image_url?: string,
-  topic_quotas?: Record<string, number>
+  topic_quotas?: Record<string, number>,
+  category?: string,
+  tags?: string[]
 ): Promise<Quiz> {
   const supabase = getSupabaseClient();
   if (supabase) {
     const payload: Record<string, unknown> = { title, raw_json };
     if (header_image_url) payload.header_image_url = header_image_url;
     if (topic_quotas) payload.topic_quotas = topic_quotas;
+    if (category) payload.category = category;
+    if (tags && tags.length > 0) payload.tags = tags;
 
     let { data, error } = await supabase
       .from("quizzes")
@@ -172,7 +176,7 @@ export async function insertQuiz(
     }
 
     if (!error && data) {
-      return { ...data, header_image_url, topic_quotas } as Quiz;
+      return { ...data, header_image_url, topic_quotas, category, tags } as Quiz;
     }
     console.error("Supabase insert quiz failed:", error?.message);
     if (isSupabaseConfigured || process.env.VERCEL) {
@@ -194,10 +198,45 @@ export async function insertQuiz(
     raw_json,
     header_image_url: header_image_url || undefined,
     topic_quotas: topic_quotas || undefined,
+    category: category || undefined,
+    tags: tags && tags.length > 0 ? tags : undefined,
   };
   store.quizzes.unshift(newQuiz);
   saveLocalStore(store);
   return newQuiz;
+}
+
+export async function updateQuizCategoryAndTags(
+  quizId: string,
+  category?: string,
+  tags?: string[]
+): Promise<Quiz> {
+  const store = getLocalStore();
+  const idx = store.quizzes.findIndex((q) => q.id === quizId);
+  if (idx !== -1) {
+    store.quizzes[idx].category = category || undefined;
+    store.quizzes[idx].tags = tags || undefined;
+    saveLocalStore(store);
+  }
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("quizzes")
+      .update({ category: category || null, tags: tags || [] })
+      .eq("id", quizId)
+      .select()
+      .single();
+
+    if (!error && data) {
+      return data as Quiz;
+    }
+    console.warn("Supabase update category/tags failed:", error?.message);
+  }
+
+  const existing = await fetchQuizById(quizId);
+  if (!existing) throw new Error("Quiz not found");
+  return { ...existing, category: category || undefined, tags: tags || undefined };
 }
 
 export async function updateQuizHeaderImage(

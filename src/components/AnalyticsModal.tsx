@@ -25,11 +25,15 @@ import {
   Filter,
   Trash2,
   Lightbulb,
+  Folder,
+  Tag,
+  Edit3,
 } from "lucide-react";
 import {
   getQuizAnalyticsAction,
   getLiveProctoringAction,
   updateQuizHeaderImageAction,
+  updateQuizCategoryAndTagsAction,
   deleteAttemptAction,
   clearAttemptsForQuizAction,
   deleteQuizAction,
@@ -72,6 +76,13 @@ export default function AnalyticsModal({
   const [editingHeaderImage, setEditingHeaderImage] = useState(false);
   const [headerImageInput, setHeaderImageInput] = useState("");
   const [savingHeaderImage, setSavingHeaderImage] = useState(false);
+
+  // Category & Tags States
+  const [editingCategoryTags, setEditingCategoryTags] = useState(false);
+  const [editCategory, setEditCategory] = useState("");
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [editTagInput, setEditTagInput] = useState("");
+  const [savingCategoryTags, setSavingCategoryTags] = useState(false);
 
   // Deletion States
   const [attemptToDelete, setAttemptToDelete] = useState<Attempt | null>(null);
@@ -141,8 +152,43 @@ export default function AnalyticsModal({
     if (quiz) {
       setCustomCount(Math.min(20, quiz.raw_json.length));
       setHeaderImageInput(quiz.header_image_url || "");
+      setEditCategory(quiz.category || "");
+      setEditTags(quiz.tags || []);
     }
   }, [quiz]);
+
+  const handleAddEditTag = (tagToAdd: string) => {
+    const cleaned = tagToAdd.trim().replace(/^#/, "");
+    if (cleaned && !editTags.includes(cleaned)) {
+      setEditTags([...editTags, cleaned]);
+    }
+    setEditTagInput("");
+  };
+
+  const handleRemoveEditTag = (tagToRemove: string) => {
+    setEditTags(editTags.filter((t) => t !== tagToRemove));
+  };
+
+  const handleSaveCategoryTags = async () => {
+    if (!currentQuiz) return;
+    setSavingCategoryTags(true);
+    try {
+      const res = await updateQuizCategoryAndTagsAction(
+        currentQuiz.id,
+        editCategory.trim() || undefined,
+        editTags
+      );
+      if (res.success && res.quiz) {
+        setCurrentQuiz(res.quiz);
+        onQuizUpdated?.(res.quiz);
+        setEditingCategoryTags(false);
+      }
+    } catch (err) {
+      console.error("Failed to update category and tags:", err);
+    } finally {
+      setSavingCategoryTags(false);
+    }
+  };
 
   const handleSaveHeaderImage = async (urlToSave?: string) => {
     if (!currentQuiz) return;
@@ -325,6 +371,120 @@ export default function AnalyticsModal({
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Category & Tags Bar */}
+          <div className="px-4 sm:px-6 py-2.5 bg-amber-50/40 border-b border-gray-200 text-xs">
+            {!editingCategoryTags ? (
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <div className="flex items-center gap-1.5 font-semibold text-gray-700">
+                    <Folder className="w-3.5 h-3.5 text-[#0056D2]" />
+                    <span>Category:</span>
+                    <span className="px-2 py-0.5 rounded bg-blue-50 text-[#0056D2] border border-blue-200 font-bold">
+                      {currentQuiz.category || "Uncategorized"}
+                    </span>
+                  </div>
+
+                  <div className="h-3.5 w-px bg-gray-300 hidden sm:block" />
+
+                  <div className="flex items-center gap-1.5 font-semibold text-gray-700">
+                    <Tag className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Tags:</span>
+                    {currentQuiz.tags && currentQuiz.tags.length > 0 ? (
+                      currentQuiz.tags.map((t) => (
+                        <span key={t} className="px-1.5 py-0.5 rounded-full bg-white text-gray-700 border border-gray-200 text-[10px] font-semibold">
+                          #{t}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-gray-400 font-normal italic">None</span>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditCategory(currentQuiz.category || "");
+                    setEditTags(currentQuiz.tags || []);
+                    setEditingCategoryTags(true);
+                  }}
+                  className="text-[#0056D2] hover:underline font-semibold text-[11px] inline-flex items-center gap-1"
+                >
+                  <Edit3 className="w-3 h-3" />
+                  <span>Edit Category & Tags</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2 p-2.5 bg-white border border-gray-200 rounded-xl shadow-inner">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1">
+                    <Folder className="w-3.5 h-3.5 text-[#0056D2]" />
+                    <input
+                      type="text"
+                      value={editCategory}
+                      onChange={(e) => setEditCategory(e.target.value)}
+                      placeholder="Category e.g. Physics"
+                      className="bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1 text-xs text-gray-800 focus:outline-none focus:border-[#0056D2] w-36"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <Tag className="w-3.5 h-3.5 text-amber-600" />
+                    <input
+                      type="text"
+                      value={editTagInput}
+                      onChange={(e) => setEditTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          handleAddEditTag(editTagInput);
+                        }
+                      }}
+                      placeholder="Add tag (Enter)"
+                      className="bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1 text-xs text-gray-800 focus:outline-none focus:border-[#0056D2] w-32"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddEditTag(editTagInput)}
+                      className="text-[11px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold text-gray-700"
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <button
+                      type="button"
+                      disabled={savingCategoryTags}
+                      onClick={handleSaveCategoryTags}
+                      className="text-xs bg-[#0056D2] hover:bg-[#0045A8] text-white px-3 py-1 rounded-lg font-semibold transition"
+                    >
+                      {savingCategoryTags ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingCategoryTags(false)}
+                      className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+
+                {editTags.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                    {editTags.map((t) => (
+                      <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-[#0056D2] border border-blue-200 text-[10px] font-semibold">
+                        #{t}
+                        <button type="button" onClick={() => handleRemoveEditTag(t)} className="hover:text-red-600 font-bold ml-0.5">×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Exam Header Logo Bar */}

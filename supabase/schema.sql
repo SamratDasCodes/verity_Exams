@@ -14,8 +14,14 @@ CREATE TABLE IF NOT EXISTS quizzes (
   title TEXT NOT NULL,
   raw_json JSONB NOT NULL,
   header_image_url TEXT,
-  topic_quotas JSONB
+  topic_quotas JSONB,
+  category TEXT,
+  tags TEXT[] DEFAULT '{}'
 );
+
+-- Migration support for existing databases:
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}';
 
 -- 3. Attempts Table
 -- Stores individual trainee submissions, linked by quiz_id foreign key.

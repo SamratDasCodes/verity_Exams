@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Plus, Sparkles, Copy, Check, ExternalLink, AlertCircle, FileCode } from "lucide-react";
+import { X, Plus, Sparkles, Copy, Check, ExternalLink, AlertCircle, FileCode, Folder, Tag } from "lucide-react";
 import { createQuizAction } from "@/app/actions/quiz";
 import { validateQuestionJson } from "@/lib/validator";
 import { Quiz } from "@/lib/types";
@@ -11,6 +11,8 @@ interface CreateQuizModalProps {
   onClose: () => void;
   onQuizCreated: (quiz: Quiz) => void;
   serverIp?: string;
+  existingCategories?: string[];
+  existingTags?: string[];
 }
 
 const SAMPLE_JSON = `[
@@ -31,9 +33,19 @@ const SAMPLE_JSON = `[
   }
 ]`;
 
-export default function CreateQuizModal({ isOpen, onClose, onQuizCreated, serverIp }: CreateQuizModalProps) {
+export default function CreateQuizModal({
+  isOpen,
+  onClose,
+  onQuizCreated,
+  serverIp,
+  existingCategories = [],
+  existingTags = [],
+}: CreateQuizModalProps) {
   const [title, setTitle] = useState("");
   const [headerImageUrl, setHeaderImageUrl] = useState("");
+  const [category, setCategory] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
   const [jsonText, setJsonText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,8 +57,29 @@ export default function CreateQuizModal({ isOpen, onClose, onQuizCreated, server
   const handlePasteSample = () => {
     setTitle("General Knowledge & Logic Sprint");
     setHeaderImageUrl("");
+    setCategory("General Knowledge");
+    setTags(["Sample", "Trivia"]);
     setJsonText(SAMPLE_JSON);
     setError(null);
+  };
+
+  const handleAddTag = (tagToAdd: string) => {
+    const cleaned = tagToAdd.trim().replace(/^#/, "");
+    if (cleaned && !tags.includes(cleaned)) {
+      setTags([...tags, cleaned]);
+    }
+    setTagInput("");
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTags(tags.filter((t) => t !== tagToRemove));
+  };
+
+  const handleKeyDownTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      handleAddTag(tagInput);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -64,7 +97,13 @@ export default function CreateQuizModal({ isOpen, onClose, onQuizCreated, server
 
     setLoading(true);
     try {
-      const res = await createQuizAction(effectiveTitle, jsonText, headerImageUrl.trim() || undefined);
+      const res = await createQuizAction(
+        effectiveTitle,
+        jsonText,
+        headerImageUrl.trim() || undefined,
+        category.trim() || undefined,
+        tags
+      );
       if (res.success && res.quiz) {
         setCreatedQuiz(res.quiz);
         onQuizCreated(res.quiz);
@@ -99,6 +138,10 @@ export default function CreateQuizModal({ isOpen, onClose, onQuizCreated, server
 
   const handleResetAndClose = () => {
     setTitle("");
+    setHeaderImageUrl("");
+    setCategory("");
+    setTags([]);
+    setTagInput("");
     setJsonText("");
     setError(null);
     setCreatedQuiz(null);
@@ -209,6 +252,98 @@ export default function CreateQuizModal({ isOpen, onClose, onQuizCreated, server
                 <p className="text-[11px] text-gray-400 mt-1">
                   Optional: If left blank, it will automatically detect the Topic (e.g. &quot;Macbeth&quot;) from your JSON.
                 </p>
+              </div>
+
+              {/* Category & Tags Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-3.5 bg-gray-50 border border-gray-200 rounded-xl">
+                {/* Category Selection / Input */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                    <Folder className="w-3.5 h-3.5 text-[#0056D2]" />
+                    Category / Subject
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      list="existing-categories"
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      placeholder="e.g. Mathematics, Physics"
+                      className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-800 placeholder:text-gray-400 focus:border-[#0056D2] focus:outline-none"
+                    />
+                    <datalist id="existing-categories">
+                      {Array.from(new Set([...existingCategories, "Mathematics", "Physics", "Chemistry", "Biology", "English Literature", "History", "Computer Science"])).map((cat) => (
+                        <option key={cat} value={cat} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Groups question sets under a subject tab.
+                  </p>
+                </div>
+
+                {/* Tags Chip Input */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                    <Tag className="w-3.5 h-3.5 text-amber-600" />
+                    Tags
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={handleKeyDownTag}
+                      placeholder="Type tag & press Enter"
+                      className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-800 placeholder:text-gray-400 focus:border-[#0056D2] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddTag(tagInput)}
+                      disabled={!tagInput.trim()}
+                      className="px-2.5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-xs font-semibold disabled:opacity-40 transition"
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  {/* Active Tag Chips */}
+                  {tags.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                      {tags.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-[#0056D2] border border-blue-200 text-[11px] font-semibold"
+                        >
+                          #{t}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTag(t)}
+                            className="hover:text-red-600 focus:outline-none ml-0.5"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Quick Preset Tag Suggestions */}
+                  <div className="flex items-center gap-1 flex-wrap mt-2">
+                    {["Grade-9", "Grade-10", "Grade-11", "Grade-12", "Term-1", "Revision"]
+                      .filter((preset) => !tags.includes(preset))
+                      .map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => handleAddTag(preset)}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-white hover:bg-gray-200 text-gray-600 border border-gray-300 transition"
+                        >
+                          +{preset}
+                        </button>
+                      ))}
+                  </div>
+                </div>
               </div>
 
               <div>
