@@ -357,17 +357,69 @@ export async function recordStudentHeartbeat(
   totalQuestions: number,
   status: "in_progress" | "submitted" = "in_progress"
 ): Promise<ActiveStudentSession> {
+  const cleanName = traineeName.trim();
+  const now = new Date().toISOString();
+  const supabase = getSupabaseClient();
+
+  if (supabase) {
+    try {
+      const { data: existing } = await supabase
+        .from("live_sessions")
+        .select("id")
+        .eq("quiz_id", quizId)
+        .ilike("trainee_name", cleanName)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        const { data, error } = await supabase
+          .from("live_sessions")
+          .update({
+            answered_count: answeredCount,
+            total_questions: totalQuestions,
+            status,
+            last_active: now,
+          })
+          .eq("id", existing[0].id)
+          .select()
+          .single();
+
+        if (!error && data) {
+          return data as ActiveStudentSession;
+        }
+      } else {
+        const { data, error } = await supabase
+          .from("live_sessions")
+          .insert([
+            {
+              quiz_id: quizId,
+              trainee_name: cleanName,
+              answered_count: answeredCount,
+              total_questions: totalQuestions,
+              status,
+              last_active: now,
+            },
+          ])
+          .select()
+          .single();
+
+        if (!error && data) {
+          return data as ActiveStudentSession;
+        }
+      }
+    } catch (err) {
+      console.warn("Supabase recordStudentHeartbeat error:", err);
+    }
+  }
+
   const store = getLocalStore();
   if (!store.live_sessions) {
     store.live_sessions = [];
   }
 
-  const cleanName = traineeName.trim();
   const existingIdx = store.live_sessions.findIndex(
     (s) => s.quiz_id === quizId && s.trainee_name.toLowerCase() === cleanName.toLowerCase()
   );
 
-  const now = new Date().toISOString();
   if (existingIdx !== -1) {
     store.live_sessions[existingIdx].answered_count = answeredCount;
     store.live_sessions[existingIdx].total_questions = totalQuestions;
@@ -392,6 +444,28 @@ export async function recordStudentHeartbeat(
 }
 
 export async function fetchLiveStudentSessions(quizId: string): Promise<ActiveStudentSession[]> {
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const twoMinutesAgo = new Date(Date.now() - 120000).toISOString();
+      const { data, error } = await supabase
+        .from("live_sessions")
+        .select("*")
+        .eq("quiz_id", quizId)
+        .or(`status.eq.submitted,last_active.gte.${twoMinutesAgo}`)
+        .order("last_active", { ascending: false });
+
+      if (!error && data) {
+        return data as ActiveStudentSession[];
+      }
+      if (error && !error.message?.includes("does not exist")) {
+        console.warn("Supabase fetchLiveStudentSessions error:", error.message);
+      }
+    } catch (err) {
+      console.warn("Supabase fetchLiveStudentSessions exception:", err);
+    }
+  }
+
   const store = getLocalStore();
   if (!store.live_sessions) return [];
 
@@ -406,6 +480,7 @@ export async function deleteQuiz(quizId: string): Promise<boolean> {
   const supabase = getSupabaseClient();
   if (supabase) {
     await supabase.from("attempts").delete().eq("quiz_id", quizId);
+    await supabase.from("live_sessions").delete().eq("quiz_id", quizId);
     const { error } = await supabase.from("quizzes").delete().eq("id", quizId);
     if (error) {
       console.warn("Supabase delete quiz failed, falling back to local store:", error.message);
@@ -440,6 +515,8 @@ export async function deleteAttempt(attemptId: string): Promise<boolean> {
 export async function clearAttemptsForQuiz(quizId: string): Promise<boolean> {
   const supabase = getSupabaseClient();
   if (supabase) {
+    await supabase.from("attempts").delete().eq("quiz_id", quizId);
+    await supabase.from("live_sessions").delete().eq("quiz_id", quizId);
     const { error } = await supabase.from("attempts").delete().eq("quiz_id", quizId);
     if (error) {
       console.warn("Supabase clear attempts failed, falling back to local store:", error.message);

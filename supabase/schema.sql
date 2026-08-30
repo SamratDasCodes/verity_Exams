@@ -81,3 +81,43 @@ CREATE POLICY "Allow anon delete to attempts"
   ON attempts FOR DELETE
   USING (true);
 
+-- ==============================================================================
+-- 4. Live Student Sessions (Real-Time Proctoring / Classroom Monitor)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS live_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  quiz_id UUID NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+  trainee_name TEXT NOT NULL,
+  answered_count INT NOT NULL DEFAULT 0,
+  total_questions INT NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'in_progress',
+  last_active TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(quiz_id, trainee_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_sessions_quiz_id ON live_sessions(quiz_id);
+CREATE INDEX IF NOT EXISTS idx_live_sessions_last_active ON live_sessions(last_active DESC);
+
+ALTER TABLE live_sessions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read access to live_sessions" ON live_sessions;
+DROP POLICY IF EXISTS "Allow public insert to live_sessions" ON live_sessions;
+DROP POLICY IF EXISTS "Allow public update to live_sessions" ON live_sessions;
+DROP POLICY IF EXISTS "Allow public delete to live_sessions" ON live_sessions;
+
+CREATE POLICY "Allow public read access to live_sessions"
+  ON live_sessions FOR SELECT
+  USING (true);
+
+CREATE POLICY "Allow public insert to live_sessions"
+  ON live_sessions FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY "Allow public update to live_sessions"
+  ON live_sessions FOR UPDATE
+  USING (true);
+
+CREATE POLICY "Allow public delete to live_sessions"
+  ON live_sessions FOR DELETE
+  USING (true);
+
