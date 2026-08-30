@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   FileText,
   Layers,
+  Lightbulb,
 } from "lucide-react";
 import { logoutAdmin } from "@/app/actions/auth";
 import { deleteQuizAction } from "@/app/actions/quiz";
@@ -114,6 +115,15 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
     const url = `${origin}/quiz/${quizId}${query}`;
     await navigator.clipboard.writeText(url);
     setCopiedId(count ? `${quizId}_${count}` : quizId);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleCopyPracticeLink = async (e: React.MouseEvent, quizId: string) => {
+    e.stopPropagation();
+    const origin = getShareOrigin();
+    const url = `${origin}/quiz/${quizId}?mode=practice`;
+    await navigator.clipboard.writeText(url);
+    setCopiedId(`practice_${quizId}`);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -370,6 +380,19 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
                           <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-end gap-1.5">
                               <button
+                                onClick={(e) => handleCopyPracticeLink(e, quiz.id)}
+                                title="Copy Student Practice Drill Link"
+                                className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold transition inline-flex items-center gap-1 border border-amber-200"
+                              >
+                                {copiedId === `practice_${quiz.id}` ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : (
+                                  <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+                                )}
+                                <span className="hidden lg:inline">{copiedId === `practice_${quiz.id}` ? "Copied!" : "Practice Link"}</span>
+                              </button>
+
+                              <button
                                 onClick={() => setSelectedQuizForAnalytics(quiz)}
                                 className="px-2.5 py-1.5 rounded-lg bg-[#0056D2]/10 hover:bg-[#0056D2]/20 text-[#0056D2] text-xs font-semibold transition inline-flex items-center gap-1 border border-[#0056D2]/20"
                                 title="View Attendees & Analytics"
@@ -500,13 +523,22 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
                     </div>
 
                     {/* Bottom Action Buttons */}
-                    <div className="flex items-center gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 pt-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => setSelectedQuizForAnalytics(quiz)}
-                        className="flex-1 py-2 px-3 rounded-xl bg-[#0056D2] hover:bg-[#0045A8] text-white text-xs font-semibold shadow transition flex items-center justify-center gap-1.5"
+                        className="flex-1 py-2 px-3 rounded-xl bg-[#0056D2] hover:bg-[#0045A8] text-white text-xs font-semibold shadow transition flex items-center justify-center gap-1.5 min-w-[130px]"
                       >
                         <BarChart3 className="w-3.5 h-3.5" />
-                        <span>View Analytics & Answers</span>
+                        <span>Analytics</span>
+                      </button>
+
+                      <button
+                        onClick={(e) => handleCopyPracticeLink(e, quiz.id)}
+                        className="py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold transition flex items-center justify-center gap-1"
+                        title="Copy Practice Mode Link"
+                      >
+                        {copiedId === `practice_${quiz.id}` ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Lightbulb className="w-3.5 h-3.5 text-amber-500" />}
+                        <span>{copiedId === `practice_${quiz.id}` ? "Copied!" : "Practice"}</span>
                       </button>
 
                       <a
@@ -630,14 +662,23 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
                       <span>{quiz.total_attempts === 1 ? "submission" : "submissions"}</span>
                     </div>
 
-                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={(e) => handleCopyPracticeLink(e, quiz.id)}
+                        title="Copy Student Practice Mode Link"
+                        className="px-2 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition flex items-center gap-1"
+                      >
+                        {copiedId === `practice_${quiz.id}` ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Lightbulb className="w-3.5 h-3.5 text-amber-500" />}
+                        <span className="text-[11px] font-semibold">{copiedId === `practice_${quiz.id}` ? "Copied" : "Practice"}</span>
+                      </button>
+
                       <button
                         onClick={(e) => handleCopyShareLink(e, quiz.id)}
-                        title="Copy Public Link (All questions)"
-                        className="px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center gap-1"
+                        title="Copy Public Exam Link"
+                        className="px-2 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center gap-1"
                       >
                         {isCopied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span className="text-[11px]">{isCopied ? "Copied" : "Full Link"}</span>
+                        <span className="text-[11px]">{isCopied ? "Copied" : "Exam"}</span>
                       </button>
 
                       <a

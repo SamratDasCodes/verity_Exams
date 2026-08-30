@@ -167,11 +167,12 @@ function shuffleArray<T>(array: T[]): T[] {
   return copy;
 }
 
-// 4. Fetch Public Quiz for Trainee (Anti-cheat: strips out correct_answer, supports subset count & time limit)
+// 4. Fetch Public Quiz for Trainee (Anti-cheat: strips out correct_answer in exam mode, supports subset count & time limit)
 export async function getPublicQuizAction(
   quizId: string,
   countParam?: number,
-  timeParam?: number
+  timeParam?: number,
+  modeParam?: string
 ): Promise<{
   success: boolean;
   quiz?: QuizPublic;
@@ -183,20 +184,27 @@ export async function getPublicQuizAction(
       return { success: false, error: "Quiz not found or may have been removed." };
     }
 
-    // Strip out correct_answer so students cannot peek inside DevTools Network response
+    const isPractice = modeParam === "practice";
+
+    // In exam mode, strip out correct_answer so students cannot peek inside DevTools Network response.
+    // In practice mode, include correct_answer and explanation so interactive learning is instant and smooth!
     const allSanitized: PublicQuestionItem[] = quiz.raw_json.map((item, originalIndex) => ({
       id: item.id || `q_${originalIndex}`,
       originalIndex,
       question: item.question,
       options: item.options,
       topic: item.topic,
+      ...(isPractice ? {
+        correct_answer: item.correct_answer,
+        explanation: item.explanation,
+      } : {}),
     }));
 
     let questionsToServe = allSanitized;
     const requestedCount = countParam && countParam > 0 ? countParam : undefined;
 
-    // Stratified topic quotas sampling
-    if (quiz.topic_quotas && Object.keys(quiz.topic_quotas).length > 0 && !requestedCount) {
+    // Stratified topic quotas sampling (for exam mode)
+    if (!isPractice && quiz.topic_quotas && Object.keys(quiz.topic_quotas).length > 0 && !requestedCount) {
       const topicGroups: Record<string, PublicQuestionItem[]> = {};
       for (const item of allSanitized) {
         const top = item.topic || "General";
@@ -227,9 +235,10 @@ export async function getPublicQuizAction(
       questions: questionsToServe,
       total_questions: questionsToServe.length,
       total_pool_size: allSanitized.length,
-      time_limit_minutes: timeParam && timeParam > 0 ? timeParam : quiz.time_limit_minutes,
+      time_limit_minutes: isPractice ? undefined : (timeParam && timeParam > 0 ? timeParam : quiz.time_limit_minutes),
       header_image_url: quiz.header_image_url,
       topic_quotas: quiz.topic_quotas,
+      mode: isPractice ? "practice" : "exam",
     };
 
     return { success: true, quiz: publicQuiz };
@@ -245,7 +254,8 @@ export async function submitQuizAttemptAction(
   traineeName: string,
   userAnswers: Record<number, string>,
   servedOriginalIndices?: number[],
-  tabSwitches: number = 0
+  tabSwitches: number = 0,
+  mode: "exam" | "practice" = "exam"
 ): Promise<{
   success: boolean;
   result?: SubmissionResult;
@@ -296,7 +306,8 @@ export async function submitQuizAttemptAction(
       maxScore,
       breakdown,
       userAnswers,
-      tabSwitches
+      tabSwitches,
+      mode
     );
     // Mark live proctoring session as submitted
     await recordStudentHeartbeat(quizId, cleanName, maxScore, maxScore, "submitted", tabSwitches);
@@ -312,6 +323,7 @@ export async function submitQuizAttemptAction(
         maxScore,
         percentage,
         tab_switches: tabSwitches,
+        mode,
         breakdown,
       },
     };

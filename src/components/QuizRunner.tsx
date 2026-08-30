@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import confetti from "canvas-confetti";
 import {
   X,
@@ -25,6 +25,9 @@ import {
   HelpCircle,
   Sun,
   Moon,
+  Lightbulb,
+  Sliders,
+  BookOpen,
 } from "lucide-react";
 import { submitQuizAttemptAction, recordStudentHeartbeatAction } from "@/app/actions/quiz";
 import { QuizPublic, SubmissionResult, PublicQuestionItem } from "@/lib/types";
@@ -34,6 +37,8 @@ interface QuizRunnerProps {
 }
 
 export default function QuizRunner({ quiz }: QuizRunnerProps) {
+  const isPracticeMode = quiz.mode === "practice";
+
   // Theme state: dark mode toggle
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     if (typeof window !== "undefined") {
@@ -53,6 +58,39 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
       return next;
     });
   };
+
+  // Practice Mode: unique topics in the pool
+  const availableTopics = useMemo(() => {
+    const map = new Map<string, number>();
+    quiz.questions.forEach((q) => {
+      const t = q.topic?.trim() || "General";
+      map.set(t, (map.get(t) || 0) + 1);
+    });
+    return Array.from(map.entries()).map(([name, count]) => ({ name, count }));
+  }, [quiz.questions]);
+
+  const [selectedTopics, setSelectedTopics] = useState<string[]>(() => {
+    return availableTopics.map((t) => t.name);
+  });
+
+  const matchingQuestions = useMemo(() => {
+    if (selectedTopics.length === availableTopics.length) {
+      return quiz.questions;
+    }
+    return quiz.questions.filter((q) => {
+      const t = q.topic?.trim() || "General";
+      return selectedTopics.includes(t);
+    });
+  }, [quiz.questions, selectedTopics, availableTopics.length]);
+
+  const [practiceQuestionCount, setPracticeQuestionCount] = useState<number>(() => {
+    const total = quiz.questions.length;
+    if (total <= 10) return total;
+    if (total <= 25) return 10;
+    return Math.min(20, total);
+  });
+
+  const [instantFeedback, setInstantFeedback] = useState<boolean>(true);
 
   // Tab-Switch & Focus Loss tracking (Anti-Cheat Proctoring)
   const [tabSwitches, setTabSwitches] = useState<number>(() => {
@@ -170,9 +208,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     }
   };
 
-  // Full-Screen listener
+  // Full-Screen listener (only in strict exam mode)
   useEffect(() => {
-    if (step !== "in_progress") return;
+    if (step !== "in_progress" || isPracticeMode) return;
 
     const handleFullscreenChange = () => {
       const isCurrentlyFs = Boolean(document.fullscreenElement);
@@ -187,11 +225,11 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
     };
-  }, [step]);
+  }, [step, isPracticeMode]);
 
-  // Prevent page refresh / reload while exam is in progress
+  // Prevent page refresh / reload while exam is in progress (only in strict exam mode)
   useEffect(() => {
-    if (step !== "in_progress") return;
+    if (step !== "in_progress" || isPracticeMode) return;
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -218,11 +256,11 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [step]);
+  }, [step, isPracticeMode]);
 
-  // Tab-Switch & Focus Loss Anti-Cheat Tracking
+  // Tab-Switch & Focus Loss Anti-Cheat Tracking (only in strict exam mode)
   useEffect(() => {
-    if (step !== "in_progress") return;
+    if (step !== "in_progress" || isPracticeMode) return;
 
     const handleFocusLoss = () => {
       const now = Date.now();
@@ -271,7 +309,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [step, quiz.id, traineeName, answeredCount, totalQuestions]);
+  }, [step, isPracticeMode, quiz.id, traineeName, answeredCount, totalQuestions]);
 
   // Timer countdown & Auto-submit
   useEffect(() => {
@@ -382,6 +420,62 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     recordStudentHeartbeatAction(quiz.id, traineeName.trim(), 0, totalQuestions, "in_progress", tabSwitches);
   };
 
+  const handleStartPractice = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!traineeName.trim()) {
+      setNameError("Please enter your name to begin your practice session.");
+      return;
+    }
+    setNameError(null);
+
+    // Shuffle and sample the requested number of questions
+    const pool = [...matchingQuestions];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+
+    const count = Math.min(Math.max(1, practiceQuestionCount), pool.length);
+    const selected = pool.slice(0, count);
+
+    setExamQuestions(selected);
+    setCurrentQuestionIdx(0);
+    setAnswers({});
+    setMarkedForReview({});
+
+    try {
+      sessionStorage.setItem(`active_exam_questions_${quiz.id}`, JSON.stringify(selected));
+      sessionStorage.setItem(`active_exam_name_${quiz.id}`, traineeName.trim());
+      sessionStorage.setItem(`active_exam_step_${quiz.id}`, "in_progress");
+    } catch {}
+
+    setStep("in_progress");
+  };
+
+  const handlePracticeMissedQuestions = () => {
+    if (!submissionResult) return;
+    const missed = submissionResult.breakdown.filter((b) => !b.isCorrect);
+    if (missed.length === 0) return;
+
+    const missedOriginalIndices = new Set(missed.map((m) => m.originalIndex));
+    const nextQuestions = quiz.questions.filter((q) => missedOriginalIndices.has(q.originalIndex));
+
+    const toServe = nextQuestions.length > 0 ? nextQuestions : quiz.questions.slice(0, missed.length);
+    setExamQuestions(toServe);
+    setAnswers({});
+    setMarkedForReview({});
+    setCurrentQuestionIdx(0);
+    setSubmissionResult(null);
+    setStep("in_progress");
+
+    try {
+      sessionStorage.setItem(`active_exam_questions_${quiz.id}`, JSON.stringify(toServe));
+      sessionStorage.removeItem(`active_exam_answers_${quiz.id}`);
+      sessionStorage.removeItem(`active_exam_marked_${quiz.id}`);
+      sessionStorage.setItem(`active_exam_step_${quiz.id}`, "in_progress");
+    } catch {}
+  };
+
   const handleSelectOption = (option: string) => {
     setAnswers((prev) => {
       const updated = {
@@ -391,14 +485,16 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
       try {
         sessionStorage.setItem(`active_exam_answers_${quiz.id}`, JSON.stringify(updated));
       } catch {}
-      recordStudentHeartbeatAction(
-        quiz.id,
-        traineeName,
-        Object.keys(updated).length,
-        totalQuestions,
-        "in_progress",
-        tabSwitches
-      );
+      if (!isPracticeMode) {
+        recordStudentHeartbeatAction(
+          quiz.id,
+          traineeName,
+          Object.keys(updated).length,
+          totalQuestions,
+          "in_progress",
+          tabSwitches
+        );
+      }
       return updated;
     });
   };
@@ -440,7 +536,8 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
         traineeName,
         answers,
         servedIndices,
-        tabSwitches
+        tabSwitches,
+        isPracticeMode ? "practice" : "exam"
       );
       if (res.success && res.result) {
         // Exit fullscreen upon completion
@@ -511,7 +608,267 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   // -------------------------------------------------------------
   // STAGE 1: Trainee Name Prompt (Full-Screen Entrance)
   // -------------------------------------------------------------
+  // STAGE 1: Trainee Name Prompt or Practice Session Customizer
+  // -------------------------------------------------------------
   if (step === "name_prompt") {
+    if (isPracticeMode) {
+      return (
+        <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? "bg-slate-950 text-slate-100" : "bg-[#f3f4f6] text-gray-800"}`}>
+          {/* Header */}
+          <header className="header-bg text-white shadow-md relative z-20">
+            <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+              {quiz.header_image_url ? (
+                <img
+                  src={quiz.header_image_url}
+                  alt={quiz.title}
+                  className="h-8 sm:h-9 object-contain max-w-[220px]"
+                />
+              ) : (
+                <div className="text-xl sm:text-2xl font-bold tracking-tight font-serif italic text-white truncate max-w-[250px] sm:max-w-md">
+                  {quiz.title}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleDarkMode}
+                  title={isDarkMode ? "Switch to Light Theme" : "Switch to Dark Theme"}
+                  className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition flex items-center justify-center"
+                >
+                  {isDarkMode ? <Sun className="w-5 h-5 text-amber-300" /> : <Moon className="w-5 h-5" />}
+                </button>
+                <span className="text-xs bg-white/15 px-3 py-1 rounded-full font-medium flex items-center gap-1.5">
+                  <Lightbulb className="w-3.5 h-3.5 text-amber-300" />
+                  Practice & Drill Mode
+                </span>
+              </div>
+            </div>
+          </header>
+
+          <div className="nav-back-bg text-white px-4 py-3 flex items-center text-sm font-medium z-10 relative shadow-inner">
+            <div className="max-w-5xl mx-auto w-full flex items-center justify-between">
+              <span>Customize Practice Session</span>
+              <span className="text-xs text-blue-100">{quiz.title}</span>
+            </div>
+          </div>
+
+          <main className="flex-1 flex items-center justify-center p-4 py-8">
+            <div className={`w-full max-w-lg border rounded-2xl p-6 sm:p-8 shadow-xl transition-colors ${
+              isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-gray-200 text-gray-800"
+            }`}>
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto mb-3 font-bold border border-amber-500/20">
+                  <Lightbulb className="w-6 h-6" />
+                </div>
+                <h1 className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>
+                  {quiz.title}
+                </h1>
+                <p className={`text-xs mt-1 ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>
+                  Customize your self-paced study drill before getting started.
+                </p>
+              </div>
+
+              <form onSubmit={handleStartPractice} className="space-y-5">
+                {/* Student Name */}
+                <div>
+                  <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${isDarkMode ? "text-slate-300" : "text-gray-600"}`}>
+                    Your Name <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={traineeName}
+                      onChange={(e) => {
+                        setTraineeName(e.target.value);
+                        if (nameError) setNameError(null);
+                      }}
+                      placeholder="e.g. Alex Johnson"
+                      autoFocus
+                      className={`w-full border rounded-xl px-4 py-2.5 pl-11 text-sm focus:outline-none transition ${
+                        isDarkMode
+                          ? "bg-slate-950 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500"
+                          : "bg-gray-50 border-gray-300 text-gray-800 placeholder:text-gray-400 focus:border-[#0056D2] focus:bg-white"
+                      }`}
+                    />
+                    <User className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                  {nameError && (
+                    <p className="text-xs text-red-500 font-medium mt-1">{nameError}</p>
+                  )}
+                </div>
+
+                {/* Question Count Selector */}
+                <div className={`p-4 rounded-xl border ${isDarkMode ? "bg-slate-950/60 border-slate-800" : "bg-gray-50/80 border-gray-200"}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className={`text-xs font-semibold uppercase tracking-wider ${isDarkMode ? "text-slate-300" : "text-gray-700"}`}>
+                      Practice Question Count
+                    </label>
+                    <span className="text-xs font-bold text-[#0056D2] dark:text-blue-400">
+                      {practiceQuestionCount} of {matchingQuestions.length} Qs
+                    </span>
+                  </div>
+
+                  {/* Preset Pills */}
+                  <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                    {[10, 20, 30, 50]
+                      .filter((n) => n < matchingQuestions.length)
+                      .map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setPracticeQuestionCount(preset)}
+                          className={`text-xs px-3 py-1 rounded-lg border font-semibold transition ${
+                            practiceQuestionCount === preset
+                              ? "bg-[#0056D2] text-white border-[#0056D2] shadow-sm"
+                              : isDarkMode
+                                ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+                                : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+                          }`}
+                        >
+                          {preset} Qs
+                        </button>
+                      ))}
+                    <button
+                      type="button"
+                      onClick={() => setPracticeQuestionCount(matchingQuestions.length)}
+                      className={`text-xs px-3 py-1 rounded-lg border font-semibold transition ${
+                        practiceQuestionCount === matchingQuestions.length
+                          ? "bg-[#0056D2] text-white border-[#0056D2] shadow-sm"
+                          : isDarkMode
+                            ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+                            : "bg-white border-gray-300 text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      All ({matchingQuestions.length})
+                    </button>
+                  </div>
+
+                  {/* Range Slider */}
+                  <input
+                    type="range"
+                    min={1}
+                    max={matchingQuestions.length}
+                    value={practiceQuestionCount}
+                    onChange={(e) => setPracticeQuestionCount(parseInt(e.target.value, 10))}
+                    className="w-full h-2 bg-gray-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#0056D2]"
+                  />
+                  <div className="flex justify-between text-[11px] text-gray-400 mt-1">
+                    <span>1 Q</span>
+                    <span>Quick Drill</span>
+                    <span>Full Pool ({matchingQuestions.length})</span>
+                  </div>
+                </div>
+
+                {/* Topic / Chapter Filter (if multiple topics exist) */}
+                {availableTopics.length > 1 && (
+                  <div className={`p-4 rounded-xl border ${isDarkMode ? "bg-slate-950/60 border-slate-800" : "bg-gray-50/80 border-gray-200"}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className={`text-xs font-semibold uppercase tracking-wider ${isDarkMode ? "text-slate-300" : "text-gray-700"}`}>
+                        Filter by Topic / Chapter
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedTopics.length === availableTopics.length) {
+                            setSelectedTopics([availableTopics[0].name]);
+                          } else {
+                            setSelectedTopics(availableTopics.map((t) => t.name));
+                          }
+                        }}
+                        className="text-[11px] text-[#0056D2] dark:text-blue-400 font-semibold hover:underline"
+                      >
+                        {selectedTopics.length === availableTopics.length ? "Deselect All" : "Select All"}
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                      {availableTopics.map((topic) => {
+                        const isChecked = selectedTopics.includes(topic.name);
+                        return (
+                          <label
+                            key={topic.name}
+                            className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition ${
+                              isChecked
+                                ? isDarkMode
+                                  ? "bg-blue-950/40 border-blue-800 text-blue-200"
+                                  : "bg-blue-50 border-blue-200 text-blue-900"
+                                : isDarkMode
+                                  ? "border-slate-800 bg-slate-900 text-slate-400"
+                                  : "border-gray-200 bg-white text-gray-500"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2 font-medium">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  setSelectedTopics((prev) => {
+                                    if (prev.includes(topic.name)) {
+                                      if (prev.length === 1) return prev; // At least one topic must remain
+                                      return prev.filter((t) => t !== topic.name);
+                                    } else {
+                                      return [...prev, topic.name];
+                                    }
+                                  });
+                                }}
+                                className="rounded text-[#0056D2] focus:ring-0"
+                              />
+                              <span>{topic.name}</span>
+                            </span>
+                            <span className="text-[10px] font-bold opacity-75">{topic.count} Qs</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Instant Feedback Toggle */}
+                <label className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition ${
+                  isDarkMode ? "bg-slate-950/60 border-slate-800 text-slate-300" : "bg-gray-50/80 border-gray-200 text-gray-700"
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={instantFeedback}
+                    onChange={(e) => setInstantFeedback(e.target.checked)}
+                    className="mt-0.5 rounded text-[#0056D2] focus:ring-0"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-gray-900 dark:text-white block">
+                      💡 Instant Answers & Explanations
+                    </span>
+                    <span className="text-gray-500 dark:text-slate-400 block mt-0.5">
+                      Reveal whether your choice is correct and show full explanations after each question.
+                    </span>
+                  </div>
+                </label>
+
+                {/* Friendly Notice */}
+                <div className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
+                  isDarkMode ? "bg-emerald-950/30 border-emerald-800 text-emerald-300" : "bg-emerald-50 border-emerald-200 text-emerald-800"
+                }`}>
+                  <Sparkles className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Zero-Stress Practice</strong>: No timer countdown and no tab-switch tracking. Retry mistakes freely at your own pace!
+                  </span>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-[#0056D2] to-blue-600 hover:from-[#0045A8] hover:to-blue-700 text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Start Practice ({practiceQuestionCount} Questions)</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+    // Standard Strict Examination Entrance
     return (
       <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? "bg-slate-950 text-slate-100" : "bg-[#f3f4f6] text-gray-800"}`}>
         {/* Header */}
@@ -726,25 +1083,33 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
           <div className="max-w-5xl mx-auto w-full flex items-center justify-between">
             <span className="flex items-center text-sm">
               <span className="font-semibold text-white mr-2">{quiz.title}</span>
-              {quiz.total_pool_size && quiz.total_pool_size > totalQuestions && (
+              {isPracticeMode ? (
+                <span className="text-[11px] bg-amber-500/30 text-amber-200 px-2 py-0.5 rounded border border-amber-400/30 flex items-center gap-1 font-semibold">
+                  <Lightbulb className="w-3 h-3 text-amber-300" />
+                  Practice Mode ({totalQuestions} Qs)
+                </span>
+              ) : quiz.total_pool_size && quiz.total_pool_size > totalQuestions ? (
                 <span className="text-[11px] bg-blue-900/60 px-2 py-0.5 rounded text-blue-200">
                   {totalQuestions} of {quiz.total_pool_size} pool
                 </span>
-              )}
+              ) : null}
             </span>
             <div className="flex items-center gap-3">
-              {tabSwitches > 0 && (
+              {!isPracticeMode && tabSwitches > 0 && (
                 <span className="inline-flex items-center gap-1 text-[11px] bg-amber-500/30 text-amber-200 px-2 py-0.5 rounded border border-amber-400/40">
                   <ShieldAlert className="w-3 h-3 text-amber-300" />
                   {tabSwitches} Switch{tabSwitches > 1 ? "es" : ""}
                 </span>
               )}
-              <span className="hidden sm:inline-flex items-center gap-1 text-[11px] bg-red-900/60 text-red-100 px-2 py-0.5 rounded border border-red-700/50">
-                <ShieldAlert className="w-3 h-3 text-red-300" />
-                Refresh Disabled
-              </span>
+              {!isPracticeMode && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] bg-red-900/60 text-red-100 px-2 py-0.5 rounded border border-red-700/50">
+                  <ShieldAlert className="w-3 h-3 text-red-300" />
+                  Refresh Disabled
+                </span>
+              )}
               <span className="text-xs text-blue-200">
-                Candidate: <strong className="text-white">{traineeName}</strong>
+                {isPracticeMode ? "Student: " : "Candidate: "}
+                <strong className="text-white">{traineeName}</strong>
               </span>
             </div>
           </div>
@@ -756,7 +1121,16 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
           <div className={`rounded-xl shadow-sm p-3 mb-4 flex justify-between items-center border transition-colors ${
             isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-gray-100 text-gray-800"
           }`}>
-            {secondsLeft !== null ? (
+            {isPracticeMode ? (
+              <div className={`flex items-center space-x-2.5 px-3 py-1.5 rounded-full border ${
+                isDarkMode ? "bg-slate-800 border-slate-700 text-slate-200" : "bg-blue-50 border-blue-200 text-blue-800"
+              }`}>
+                <Lightbulb className="w-4 h-4 text-amber-400" />
+                <span className="font-bold text-sm">
+                  Practice Drill • Question {currentQuestionIdx + 1} of {totalQuestions}
+                </span>
+              </div>
+            ) : secondsLeft !== null ? (
               <div
                 className={`flex items-center space-x-2.5 px-3 py-1.5 rounded-full border transition ${
                   secondsLeft < 300
@@ -864,20 +1238,41 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                 {currentQuestion.options.map((option, idx) => {
                   const optId = String.fromCharCode(65 + idx);
                   const isSelected = answers[currentQuestionIdx] === option;
+                  const isAnswered = answers[currentQuestionIdx] !== undefined;
+                  const isCorrectAnswer = Boolean(
+                    currentQuestion.correct_answer && option.trim() === currentQuestion.correct_answer.trim()
+                  );
+
+                  let optionColorClass = "";
+                  if (isPracticeMode && instantFeedback && isAnswered) {
+                    if (isCorrectAnswer) {
+                      optionColorClass = isDarkMode
+                        ? "border-emerald-500 bg-emerald-950/60 text-emerald-100 ring-2 ring-emerald-500/40"
+                        : "border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-400";
+                    } else if (isSelected && !isCorrectAnswer) {
+                      optionColorClass = isDarkMode
+                        ? "border-rose-500 bg-rose-950/60 text-rose-100 ring-2 ring-rose-500/40"
+                        : "border-rose-400 bg-rose-50 text-rose-900 ring-2 ring-rose-300";
+                    } else {
+                      optionColorClass = isDarkMode
+                        ? "border-slate-800 bg-slate-900/40 text-slate-400 opacity-60"
+                        : "border-gray-200 bg-gray-50/70 text-gray-400 opacity-60";
+                    }
+                  } else {
+                    optionColorClass = isSelected
+                      ? isDarkMode
+                        ? "selected border-blue-500 bg-blue-950/50 text-white"
+                        : "selected border-[#0056D2] bg-[#f0f7ff] text-gray-900"
+                      : isDarkMode
+                        ? "border-slate-800 bg-slate-900/90 hover:bg-slate-800/80 text-slate-200"
+                        : "border-gray-300 bg-white hover:bg-gray-50 text-gray-700";
+                  }
 
                   return (
                     <label
                       key={idx}
                       onClick={() => handleSelectOption(option)}
-                      className={`option-container flex items-center gap-3.5 sm:gap-4 p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-colors ${
-                        isSelected
-                          ? isDarkMode
-                            ? "selected border-blue-500 bg-blue-950/50 text-white"
-                            : "selected border-[#0056D2] bg-[#f0f7ff] text-gray-900"
-                          : isDarkMode
-                            ? "border-slate-800 bg-slate-900/90 hover:bg-slate-800/80 text-slate-200"
-                            : "border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
-                      }`}
+                      className={`option-container flex items-center gap-3.5 sm:gap-4 p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-colors ${optionColorClass}`}
                     >
                       <input
                         type="radio"
@@ -895,6 +1290,66 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                   );
                 })}
               </div>
+
+              {/* Instant Explanation Box (Practice Mode Only) */}
+              {isPracticeMode && instantFeedback && answers[currentQuestionIdx] !== undefined && (
+                <div className={`mt-5 p-4 rounded-xl border animate-scale-in transition ${
+                  answers[currentQuestionIdx] === currentQuestion.correct_answer
+                    ? isDarkMode ? "bg-emerald-950/40 border-emerald-800 text-emerald-200" : "bg-emerald-50 border-emerald-200 text-emerald-900"
+                    : isDarkMode ? "bg-rose-950/40 border-rose-800 text-rose-200" : "bg-rose-50 border-rose-200 text-rose-900"
+                }`}>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 font-bold text-sm">
+                      {answers[currentQuestionIdx] === currentQuestion.correct_answer ? (
+                        <>
+                          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                          <span>Correct! Well done.</span>
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-5 h-5 text-rose-500 shrink-0" />
+                          <span>
+                            Incorrect. Correct answer: <strong className="underline">{currentQuestion.correct_answer}</strong>
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {answers[currentQuestionIdx] !== currentQuestion.correct_answer && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAnswers((prev) => {
+                            const copy = { ...prev };
+                            delete copy[currentQuestionIdx];
+                            try {
+                              sessionStorage.setItem(`active_exam_answers_${quiz.id}`, JSON.stringify(copy));
+                            } catch {}
+                            return copy;
+                          });
+                        }}
+                        className={`px-3 py-1 text-xs font-bold rounded-lg border shadow-sm transition inline-flex items-center gap-1 ${
+                          isDarkMode
+                            ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700"
+                            : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Try Again</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {currentQuestion.explanation && (
+                    <div className={`mt-3 pt-3 border-t text-xs leading-relaxed ${
+                      isDarkMode ? "border-slate-800/80 text-slate-300" : "border-gray-200 text-gray-700"
+                    }`}>
+                      <strong className="text-[#0056D2] dark:text-blue-400">💡 Explanation: </strong>
+                      {currentQuestion.explanation}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -930,7 +1385,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                   <span>Submitting...</span>
                 ) : (
                   <>
-                    Submit Assessment
+                    <span>{isPracticeMode ? "Finish Practice Drill" : "Submit Assessment"}</span>
                     <Check className="w-5 h-5 ml-1" />
                   </>
                 )}
@@ -1189,14 +1644,22 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
             </div>
 
             <h1 className={`text-2xl sm:text-3xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>
-              {percentage >= 70 ? "Congratulations" : "Exam Completed"}, {traineeName}!
+              {isPracticeMode
+                ? percentage >= 70 ? "Well Done, " : "Practice Completed, "
+                : percentage >= 70 ? "Congratulations, " : "Exam Completed, "}
+              {traineeName}!
             </h1>
             <p className={`text-xs mt-1 ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>
-              Your submission for <span className={`font-semibold ${isDarkMode ? "text-slate-200" : "text-gray-700"}`}>&quot;{quiz.title}&quot;</span> has been recorded.
+              Your {isPracticeMode ? "practice attempt" : "official submission"} for <span className={`font-semibold ${isDarkMode ? "text-slate-200" : "text-gray-700"}`}>&quot;{quiz.title}&quot;</span> has been recorded.
             </p>
 
-            {/* Anti-Cheat Focus Summary */}
-            {tab_switches && tab_switches > 0 ? (
+            {/* Anti-Cheat Focus Summary or Practice Mode Tag */}
+            {isPracticeMode ? (
+              <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/40 text-blue-600 dark:text-blue-300 text-xs font-semibold">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+                <span>Self-Paced Practice Drill • Attempt Logged</span>
+              </div>
+            ) : tab_switches && tab_switches > 0 ? (
               <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-xs font-semibold">
                 <ShieldAlert className="w-3.5 h-3.5" />
                 <span>Proctoring Record: {tab_switches} tab switch{tab_switches > 1 ? "es" : ""} logged</span>
@@ -1211,23 +1674,45 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
             <div className={`my-6 p-6 rounded-xl border inline-block max-w-xs w-full ${
               isDarkMode ? "bg-slate-950 border-slate-800" : "bg-gray-50 border-gray-200"
             }`}>
-              <p className={`text-xs font-semibold uppercase tracking-wider ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>Final Marks</p>
+              <p className={`text-xs font-semibold uppercase tracking-wider ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>
+                {isPracticeMode ? "Drill Accuracy" : "Final Marks"}
+              </p>
               <div className="text-4xl font-extrabold text-[#0056D2] dark:text-blue-400 mt-1">
                 {score} <span className={`text-xl font-normal ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>/ {maxScore}</span>
               </div>
               <p className={`text-sm font-semibold mt-1 ${isDarkMode ? "text-slate-300" : "text-gray-700"}`}>{percentage}% Score</p>
             </div>
 
-            <div>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              {isPracticeMode && breakdown.some((b) => !b.isCorrect) && (
+                <button
+                  onClick={handlePracticeMissedQuestions}
+                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold inline-flex items-center gap-1.5 shadow transition"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Practice Missed Questions ({breakdown.filter((b) => !b.isCorrect).length})</span>
+                </button>
+              )}
+
               <button
                 onClick={handleRetake}
-                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition ${
+                className={`px-4 py-2.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition ${
                   isDarkMode
                     ? "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
                     : "bg-gray-100 hover:bg-gray-200 text-gray-700"
                 }`}
               >
-                <RotateCcw className="w-3.5 h-3.5" /> Retake Exam
+                {isPracticeMode ? (
+                  <>
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Customize New Drill</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Retake Exam</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

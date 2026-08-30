@@ -292,7 +292,8 @@ export async function insertAttempt(
   maxScore: number,
   breakdown?: QuestionBreakdown[],
   answers?: Record<number, string>,
-  tab_switches: number = 0
+  tab_switches: number = 0,
+  mode: "exam" | "practice" = "exam"
 ): Promise<Attempt> {
   const supabase = getSupabaseClient();
   if (supabase) {
@@ -303,8 +304,11 @@ export async function insertAttempt(
       max_score: maxScore,
       tab_switches,
     };
-    if (breakdown) payload.breakdown = breakdown;
-    if (answers) payload.answers = answers;
+    // Per user instructions: do NOT save heavy breakdown or answer lists for practice mode
+    if (mode === "exam") {
+      if (breakdown) payload.breakdown = breakdown;
+      if (answers) payload.answers = answers;
+    }
 
     let { data, error } = await supabase
       .from("attempts")
@@ -320,8 +324,10 @@ export async function insertAttempt(
         score,
         max_score: maxScore,
       };
-      if (breakdown) fallbackPayload.breakdown = breakdown;
-      if (answers) fallbackPayload.answers = answers;
+      if (mode === "exam") {
+        if (breakdown) fallbackPayload.breakdown = breakdown;
+        if (answers) fallbackPayload.answers = answers;
+      }
 
       const fallback = await supabase
         .from("attempts")
@@ -333,7 +339,13 @@ export async function insertAttempt(
     }
 
     if (!error && data) {
-      return { ...data, breakdown, answers, tab_switches } as Attempt;
+      return {
+        ...data,
+        breakdown: mode === "exam" ? breakdown : undefined,
+        answers: mode === "exam" ? answers : undefined,
+        tab_switches,
+        mode,
+      } as Attempt;
     }
     console.warn("Supabase insert attempt failed, saving to local store:", error?.message);
   }
@@ -346,8 +358,9 @@ export async function insertAttempt(
     score,
     max_score: maxScore,
     tab_switches,
-    breakdown,
-    answers,
+    mode,
+    breakdown: mode === "exam" ? breakdown : undefined,
+    answers: mode === "exam" ? answers : undefined,
     submitted_at: new Date().toISOString(),
   };
   store.attempts.unshift(newAttempt);

@@ -13,17 +13,22 @@ interface QuizPageProps {
   searchParams?: {
     count?: string;
     time?: string;
+    mode?: string;
   };
 }
 
 export async function generateMetadata({ params, searchParams }: QuizPageProps): Promise<Metadata> {
   const countParam = searchParams?.count ? parseInt(searchParams.count, 10) : undefined;
   const timeParam = searchParams?.time ? parseInt(searchParams.time, 10) : undefined;
-  const res = await getPublicQuizAction(params.id, countParam, timeParam);
+  const modeParam = searchParams?.mode;
+  const res = await getPublicQuizAction(params.id, countParam, timeParam, modeParam);
   if (res.success && res.quiz) {
+    const isPractice = res.quiz.mode === "practice";
     return {
-      title: `${res.quiz.title} | Live Quiz`,
-      description: `Take the ${res.quiz.title} live assessment.`,
+      title: `${res.quiz.title} | ${isPractice ? "Practice Drill" : "Live Quiz"}`,
+      description: isPractice
+        ? `Interactive practice session for ${res.quiz.title}.`
+        : `Take the ${res.quiz.title} live assessment.`,
     };
   }
   return {
@@ -34,7 +39,8 @@ export async function generateMetadata({ params, searchParams }: QuizPageProps):
 export default async function PublicQuizPage({ params, searchParams }: QuizPageProps) {
   const countParam = searchParams?.count ? parseInt(searchParams.count, 10) : undefined;
   const timeParam = searchParams?.time ? parseInt(searchParams.time, 10) : undefined;
-  const res = await getPublicQuizAction(params.id, countParam, timeParam);
+  const modeParam = searchParams?.mode;
+  const res = await getPublicQuizAction(params.id, countParam, timeParam, modeParam);
 
   if (!res.success || !res.quiz) {
     return (
