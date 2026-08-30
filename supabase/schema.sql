@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS attempts (
   trainee_name TEXT NOT NULL,
   score INT NOT NULL,
   max_score INT NOT NULL DEFAULT 0,
+  tab_switches INT NOT NULL DEFAULT 0,
   breakdown JSONB,
   answers JSONB,
   submitted_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -91,6 +92,7 @@ CREATE TABLE IF NOT EXISTS live_sessions (
   answered_count INT NOT NULL DEFAULT 0,
   total_questions INT NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'in_progress',
+  tab_switches INT NOT NULL DEFAULT 0,
   last_active TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(quiz_id, trainee_name)
 );
@@ -120,4 +122,8 @@ CREATE POLICY "Allow public update to live_sessions"
 CREATE POLICY "Allow public delete to live_sessions"
   ON live_sessions FOR DELETE
   USING (true);
+
+-- Migration helpers for existing databases:
+ALTER TABLE IF EXISTS attempts ADD COLUMN IF NOT EXISTS tab_switches INT NOT NULL DEFAULT 0;
+ALTER TABLE IF EXISTS live_sessions ADD COLUMN IF NOT EXISTS tab_switches INT NOT NULL DEFAULT 0;
 

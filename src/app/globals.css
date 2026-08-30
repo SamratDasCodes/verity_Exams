@@ -60,6 +60,19 @@ body {
   border-color: #0056D2;
 }
 
+.dark-radio {
+  background-color: #0f172a;
+  border-color: #475569;
+}
+
+.dark-radio:checked {
+  border-color: #3b82f6;
+}
+
+.dark-radio::before {
+  box-shadow: inset 1em 1em #3b82f6;
+}
+
 .option-container.selected {
   border-color: #0056D2;
   background-color: #f0f7ff;

@@ -291,7 +291,8 @@ export async function insertAttempt(
   score: number,
   maxScore: number,
   breakdown?: QuestionBreakdown[],
-  answers?: Record<number, string>
+  answers?: Record<number, string>,
+  tab_switches: number = 0
 ): Promise<Attempt> {
   const supabase = getSupabaseClient();
   if (supabase) {
@@ -300,6 +301,7 @@ export async function insertAttempt(
       trainee_name: traineeName,
       score,
       max_score: maxScore,
+      tab_switches,
     };
     if (breakdown) payload.breakdown = breakdown;
     if (answers) payload.answers = answers;
@@ -311,17 +313,19 @@ export async function insertAttempt(
       .single();
 
     if (error && error.message?.includes("column")) {
-      // Fallback if remote schema doesn't yet have breakdown column
+      // Fallback if remote schema doesn't yet have tab_switches column
+      const fallbackPayload: Record<string, unknown> = {
+        quiz_id: quizId,
+        trainee_name: traineeName,
+        score,
+        max_score: maxScore,
+      };
+      if (breakdown) fallbackPayload.breakdown = breakdown;
+      if (answers) fallbackPayload.answers = answers;
+
       const fallback = await supabase
         .from("attempts")
-        .insert([
-          {
-            quiz_id: quizId,
-            trainee_name: traineeName,
-            score,
-            max_score: maxScore,
-          },
-        ])
+        .insert([fallbackPayload])
         .select()
         .single();
       data = fallback.data;
@@ -329,7 +333,7 @@ export async function insertAttempt(
     }
 
     if (!error && data) {
-      return { ...data, breakdown, answers } as Attempt;
+      return { ...data, breakdown, answers, tab_switches } as Attempt;
     }
     console.warn("Supabase insert attempt failed, saving to local store:", error?.message);
   }
@@ -341,6 +345,7 @@ export async function insertAttempt(
     trainee_name: traineeName,
     score,
     max_score: maxScore,
+    tab_switches,
     breakdown,
     answers,
     submitted_at: new Date().toISOString(),
@@ -355,7 +360,8 @@ export async function recordStudentHeartbeat(
   traineeName: string,
   answeredCount: number,
   totalQuestions: number,
-  status: "in_progress" | "submitted" = "in_progress"
+  status: "in_progress" | "submitted" = "in_progress",
+  tabSwitches: number = 0
 ): Promise<ActiveStudentSession> {
   const cleanName = traineeName.trim();
   const now = new Date().toISOString();
@@ -377,6 +383,7 @@ export async function recordStudentHeartbeat(
             answered_count: answeredCount,
             total_questions: totalQuestions,
             status,
+            tab_switches: tabSwitches,
             last_active: now,
           })
           .eq("id", existing[0].id)
@@ -396,6 +403,7 @@ export async function recordStudentHeartbeat(
               answered_count: answeredCount,
               total_questions: totalQuestions,
               status,
+              tab_switches: tabSwitches,
               last_active: now,
             },
           ])
@@ -424,6 +432,7 @@ export async function recordStudentHeartbeat(
     store.live_sessions[existingIdx].answered_count = answeredCount;
     store.live_sessions[existingIdx].total_questions = totalQuestions;
     store.live_sessions[existingIdx].status = status;
+    store.live_sessions[existingIdx].tab_switches = tabSwitches;
     store.live_sessions[existingIdx].last_active = now;
     saveLocalStore(store);
     return store.live_sessions[existingIdx];
@@ -435,6 +444,7 @@ export async function recordStudentHeartbeat(
       answered_count: answeredCount,
       total_questions: totalQuestions,
       status,
+      tab_switches: tabSwitches,
       last_active: now,
     };
     store.live_sessions.unshift(newSession);

@@ -23,6 +23,8 @@ import {
   Maximize2,
   AlertCircle,
   HelpCircle,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { submitQuizAttemptAction, recordStudentHeartbeatAction } from "@/app/actions/quiz";
 import { QuizPublic, SubmissionResult, PublicQuestionItem } from "@/lib/types";
@@ -32,6 +34,39 @@ interface QuizRunnerProps {
 }
 
 export default function QuizRunner({ quiz }: QuizRunnerProps) {
+  // Theme state: dark mode toggle
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        return localStorage.getItem("verity_exam_theme") === "dark";
+      } catch {}
+    }
+    return false;
+  });
+
+  const toggleDarkMode = () => {
+    setIsDarkMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("verity_exam_theme", next ? "dark" : "light");
+      } catch {}
+      return next;
+    });
+  };
+
+  // Tab-Switch & Focus Loss tracking (Anti-Cheat Proctoring)
+  const [tabSwitches, setTabSwitches] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = sessionStorage.getItem(`active_exam_tab_switches_${quiz.id}`);
+        if (stored) return parseInt(stored, 10) || 0;
+      } catch {}
+    }
+    return 0;
+  });
+  const [tabWarning, setTabWarning] = useState<string | null>(null);
+  const lastSwitchTimestampRef = useRef<number>(0);
+
   // Freeze exam questions in local state so Next.js server revalidations NEVER change questions mid-exam
   const [examQuestions, setExamQuestions] = useState<PublicQuestionItem[]>(() => {
     if (typeof window !== "undefined") {
@@ -185,6 +220,59 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     };
   }, [step]);
 
+  // Tab-Switch & Focus Loss Anti-Cheat Tracking
+  useEffect(() => {
+    if (step !== "in_progress") return;
+
+    const handleFocusLoss = () => {
+      const now = Date.now();
+      // Debounce rapid visibilitychange + blur triggers
+      if (now - lastSwitchTimestampRef.current < 1200) return;
+      lastSwitchTimestampRef.current = now;
+
+      setTabSwitches((prev) => {
+        const nextCount = prev + 1;
+        try {
+          sessionStorage.setItem(`active_exam_tab_switches_${quiz.id}`, nextCount.toString());
+        } catch {}
+
+        setTabWarning(`⚠️ Attention: Tab switch detected (#${nextCount})! This incident has been logged for the proctor.`);
+        setTimeout(() => setTabWarning(null), 5000);
+
+        // Instantly notify proctor live
+        if (traineeName) {
+          recordStudentHeartbeatAction(
+            quiz.id,
+            traineeName,
+            answeredCount,
+            totalQuestions,
+            "in_progress",
+            nextCount
+          );
+        }
+        return nextCount;
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        handleFocusLoss();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      handleFocusLoss();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, [step, quiz.id, traineeName, answeredCount, totalQuestions]);
+
   // Timer countdown & Auto-submit
   useEffect(() => {
     if (step !== "in_progress" || secondsLeft === null) return;
@@ -217,14 +305,28 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     if (step !== "in_progress" || !traineeName) return;
 
     // Initial ping
-    recordStudentHeartbeatAction(quiz.id, traineeName, answeredCount, totalQuestions, "in_progress");
+    recordStudentHeartbeatAction(
+      quiz.id,
+      traineeName,
+      answeredCount,
+      totalQuestions,
+      "in_progress",
+      tabSwitches
+    );
 
     const heartbeatTimer = setInterval(() => {
-      recordStudentHeartbeatAction(quiz.id, traineeName, answeredCount, totalQuestions, "in_progress");
+      recordStudentHeartbeatAction(
+        quiz.id,
+        traineeName,
+        answeredCount,
+        totalQuestions,
+        "in_progress",
+        tabSwitches
+      );
     }, 6000);
 
     return () => clearInterval(heartbeatTimer);
-  }, [step, traineeName, answeredCount, totalQuestions, quiz.id]);
+  }, [step, traineeName, answeredCount, totalQuestions, quiz.id, tabSwitches]);
 
   // Trigger confetti upon completion
   useEffect(() => {
@@ -277,7 +379,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     } catch {}
 
     setStep("in_progress");
-    recordStudentHeartbeatAction(quiz.id, traineeName.trim(), 0, totalQuestions, "in_progress");
+    recordStudentHeartbeatAction(quiz.id, traineeName.trim(), 0, totalQuestions, "in_progress", tabSwitches);
   };
 
   const handleSelectOption = (option: string) => {
@@ -289,7 +391,14 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
       try {
         sessionStorage.setItem(`active_exam_answers_${quiz.id}`, JSON.stringify(updated));
       } catch {}
-      recordStudentHeartbeatAction(quiz.id, traineeName, Object.keys(updated).length, totalQuestions, "in_progress");
+      recordStudentHeartbeatAction(
+        quiz.id,
+        traineeName,
+        Object.keys(updated).length,
+        totalQuestions,
+        "in_progress",
+        tabSwitches
+      );
       return updated;
     });
   };
@@ -326,7 +435,13 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
     try {
       const servedIndices = examQuestions.map((q) => q.originalIndex);
-      const res = await submitQuizAttemptAction(quiz.id, traineeName, answers, servedIndices);
+      const res = await submitQuizAttemptAction(
+        quiz.id,
+        traineeName,
+        answers,
+        servedIndices,
+        tabSwitches
+      );
       if (res.success && res.result) {
         // Exit fullscreen upon completion
         try {
@@ -343,6 +458,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
           sessionStorage.removeItem(`active_exam_marked_${quiz.id}`);
           sessionStorage.removeItem(`active_exam_step_${quiz.id}`);
           sessionStorage.removeItem(`active_exam_time_${quiz.id}`);
+          sessionStorage.removeItem(`active_exam_tab_switches_${quiz.id}`);
         } catch {}
 
         setSubmissionResult(res.result);
@@ -365,7 +481,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
       sessionStorage.removeItem(`active_exam_marked_${quiz.id}`);
       sessionStorage.removeItem(`active_exam_step_${quiz.id}`);
       sessionStorage.removeItem(`active_exam_time_${quiz.id}`);
+      sessionStorage.removeItem(`active_exam_tab_switches_${quiz.id}`);
     } catch {}
+    setTabSwitches(0);
     setExamQuestions(quiz.questions);
     setAnswers({});
     setMarkedForReview({});
@@ -395,7 +513,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   // -------------------------------------------------------------
   if (step === "name_prompt") {
     return (
-      <div className="min-h-screen flex flex-col bg-[#f3f4f6]">
+      <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? "bg-slate-950 text-slate-100" : "bg-[#f3f4f6] text-gray-800"}`}>
         {/* Header */}
         <header className="header-bg text-white shadow-md relative z-20">
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -410,9 +528,19 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                 {quiz.title}
               </div>
             )}
-            <span className="text-xs bg-white/15 px-3 py-1 rounded-full font-medium">
-              Online Examination Portal
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleDarkMode}
+                title={isDarkMode ? "Switch to Light Theme" : "Switch to Dark Theme"}
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition flex items-center justify-center"
+              >
+                {isDarkMode ? <Sun className="w-5 h-5 text-amber-300" /> : <Moon className="w-5 h-5" />}
+              </button>
+              <span className="text-xs bg-white/15 px-3 py-1 rounded-full font-medium">
+                Online Examination Portal
+              </span>
+            </div>
           </div>
         </header>
 
@@ -424,12 +552,14 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
         </div>
 
         <main className="flex-1 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white border border-gray-200 rounded-xl p-6 sm:p-8 shadow-md">
+          <div className={`w-full max-w-md border rounded-xl p-6 sm:p-8 shadow-md transition-colors ${
+            isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-gray-200 text-gray-800"
+          }`}>
             <div className="text-center mb-6">
               <div className="w-12 h-12 rounded-xl bg-[#0056D2]/10 text-[#0056D2] flex items-center justify-center mx-auto mb-3 font-bold">
                 <Sparkles className="w-6 h-6" />
               </div>
-              <h1 className="text-2xl font-bold text-gray-800">{quiz.title}</h1>
+              <h1 className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>{quiz.title}</h1>
               <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-[#0056D2] font-semibold border border-blue-200">
                   {totalQuestions} Questions
@@ -445,7 +575,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
             <form onSubmit={handleStartQuiz} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">
+                <label className={`block text-xs font-semibold uppercase tracking-wider mb-2 ${isDarkMode ? "text-slate-300" : "text-gray-600"}`}>
                   Enter Your Full Name
                 </label>
                 <div className="relative">
@@ -458,7 +588,11 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                     }}
                     placeholder="e.g. Alex Johnson"
                     autoFocus
-                    className="w-full bg-gray-50 border border-gray-300 rounded-lg px-4 py-3 pl-11 text-sm text-gray-800 placeholder:text-gray-400 focus:border-[#0056D2] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0056D2] transition"
+                    className={`w-full border rounded-lg px-4 py-3 pl-11 text-sm focus:outline-none transition ${
+                      isDarkMode
+                        ? "bg-slate-950 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500"
+                        : "bg-gray-50 border-gray-300 text-gray-800 placeholder:text-gray-400 focus:border-[#0056D2] focus:bg-white focus:ring-1 focus:ring-[#0056D2]"
+                    }`}
                   />
                   <User className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
@@ -469,7 +603,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
               )}
 
               {/* Full-screen guidance */}
-              <div className="p-3 bg-blue-50/60 border border-blue-200/80 rounded-lg text-xs text-blue-900 flex items-start gap-2">
+              <div className={`p-3 border rounded-lg text-xs flex items-start gap-2 ${
+                isDarkMode ? "bg-blue-950/40 border-blue-900 text-blue-200" : "bg-blue-50/60 border-blue-200/80 text-blue-900"
+              }`}>
                 <Maximize2 className="w-4 h-4 text-[#0056D2] shrink-0 mt-0.5" />
                 <span>
                   This exam requires <strong>Full-Screen Mode</strong>. Clicking start will launch full-screen mode to ensure exam integrity.
@@ -500,8 +636,8 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   if (step === "in_progress") {
     if (!currentQuestion) {
       return (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-[#f3f4f6]">
-          <p className="text-sm text-gray-500">Loading questions...</p>
+        <div className={`min-h-screen flex items-center justify-center p-4 ${isDarkMode ? "bg-slate-950 text-slate-400" : "bg-[#f3f4f6] text-gray-500"}`}>
+          <p className="text-sm">Loading questions...</p>
         </div>
       );
     }
@@ -509,12 +645,20 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     const isLastQuestion = currentQuestionIdx === totalQuestions - 1;
 
     return (
-      <div className="antialiased text-gray-800 min-h-screen flex flex-col bg-[#f3f4f6]">
+      <div className={`antialiased min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? "bg-slate-950 text-slate-100" : "bg-[#f3f4f6] text-gray-800"}`}>
         {/* Anti-refresh Warning Toast */}
         {refreshWarning && (
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs sm:text-sm font-semibold border border-red-700 animate-bounce">
             <AlertTriangle className="w-5 h-5 text-yellow-300 shrink-0" />
             <span>Page refresh is disabled during the exam! Please continue answering your questions.</span>
+          </div>
+        )}
+
+        {/* Tab-Switch Anti-Cheat Warning Toast */}
+        {tabWarning && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm font-semibold border border-amber-700 animate-bounce max-w-md w-[90%]">
+            <ShieldAlert className="w-5 h-5 text-amber-200 shrink-0" />
+            <span>{tabWarning}</span>
           </div>
         )}
 
@@ -559,8 +703,16 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
               </div>
             )}
 
-            {/* Trainee profile indicator */}
-            <div className="flex items-center gap-2 text-xs">
+            {/* Trainee profile indicator & theme toggle */}
+            <div className="flex items-center gap-2.5 text-xs">
+              <button
+                type="button"
+                onClick={toggleDarkMode}
+                title={isDarkMode ? "Switch to Light Theme" : "Switch to Dark Theme"}
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition flex items-center justify-center"
+              >
+                {isDarkMode ? <Sun className="w-4 h-4 text-amber-300" /> : <Moon className="w-4 h-4" />}
+              </button>
               <span className="hidden sm:inline font-medium">{traineeName}</span>
               <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center font-bold text-xs">
                 {traineeName.charAt(0).toUpperCase() || "T"}
@@ -581,6 +733,12 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
               )}
             </span>
             <div className="flex items-center gap-3">
+              {tabSwitches > 0 && (
+                <span className="inline-flex items-center gap-1 text-[11px] bg-amber-500/30 text-amber-200 px-2 py-0.5 rounded border border-amber-400/40">
+                  <ShieldAlert className="w-3 h-3 text-amber-300" />
+                  {tabSwitches} Switch{tabSwitches > 1 ? "es" : ""}
+                </span>
+              )}
               <span className="hidden sm:inline-flex items-center gap-1 text-[11px] bg-red-900/60 text-red-100 px-2 py-0.5 rounded border border-red-700/50">
                 <ShieldAlert className="w-3 h-3 text-red-300" />
                 Refresh Disabled
@@ -595,31 +753,37 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
         {/* Main Examination Container */}
         <main className="flex-grow p-4 md:px-8 max-w-3xl mx-auto w-full flex flex-col relative z-0">
           {/* Info Bar (Timer and Grid view toggle) */}
-          <div className="bg-white rounded-lg shadow-sm p-3 mb-4 flex justify-between items-center border border-gray-100">
+          <div className={`rounded-xl shadow-sm p-3 mb-4 flex justify-between items-center border transition-colors ${
+            isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-gray-100 text-gray-800"
+          }`}>
             {secondsLeft !== null ? (
               <div
                 className={`flex items-center space-x-2.5 px-3 py-1.5 rounded-full border transition ${
                   secondsLeft < 300
                     ? "bg-red-50 border-red-200 text-red-700 font-bold animate-pulse"
-                    : "bg-gray-100 border-gray-200 text-gray-700 font-medium"
+                    : isDarkMode
+                      ? "bg-slate-800 border-slate-700 text-slate-200 font-medium"
+                      : "bg-gray-100 border-gray-200 text-gray-700 font-medium"
                 }`}
               >
                 <div
                   className="progress-circle"
                   style={{
-                    background: `conic-gradient(#d9534f ${timeProgressPct}%, #e5e7eb 0)`,
+                    background: `conic-gradient(#d9534f ${timeProgressPct}%, ${isDarkMode ? "#334155" : "#e5e7eb"} 0)`,
                   }}
                   title="Time Remaining"
                 />
                 <span className="text-sm">Time Left: {formatTimeLeft(secondsLeft)}</span>
               </div>
             ) : (
-              <div className="flex items-center space-x-3 bg-gray-100 px-3 py-1.5 rounded-full border border-gray-200">
+              <div className={`flex items-center space-x-3 px-3 py-1.5 rounded-full border ${
+                isDarkMode ? "bg-slate-800 border-slate-700 text-slate-200" : "bg-gray-100 border-gray-200 text-gray-700"
+              }`}>
                 <div
                   className="progress-circle"
                   title={`${Math.round(((currentQuestionIdx + 1) / totalQuestions) * 100)}% progress`}
                 />
-                <span className="text-gray-700 font-medium text-sm">
+                <span className="font-medium text-sm">
                   Question {currentQuestionIdx + 1} of {totalQuestions}
                 </span>
               </div>
@@ -640,21 +804,29 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
           </div>
 
           {/* Question Card matching template */}
-          <div className="bg-white rounded-xl shadow-md overflow-hidden flex-grow flex flex-col border border-gray-200">
+          <div className={`rounded-xl shadow-md overflow-hidden flex-grow flex flex-col border transition-colors ${
+            isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-gray-200 text-gray-800"
+          }`}>
             {/* Question Header */}
-            <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex justify-between items-start">
+            <div className={`px-5 py-4 border-b flex justify-between items-start transition-colors ${
+              isDarkMode ? "bg-slate-950/70 border-slate-800" : "bg-gray-50 border-gray-100"
+            }`}>
               <div>
-                <h2 className="text-xl font-bold text-gray-800" id="current-question-label">
+                <h2 className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`} id="current-question-label">
                   Question {currentQuestionIdx + 1} of {totalQuestions}
                 </h2>
                 <button
                   onClick={toggleMarkForReview}
                   className={`text-sm mt-1 flex items-center transition focus:outline-none ${
-                    isMarked ? "text-yellow-600 font-semibold" : "text-gray-500 hover:text-gray-700"
+                    isMarked
+                      ? "text-yellow-500 font-semibold"
+                      : isDarkMode
+                        ? "text-slate-400 hover:text-slate-200"
+                        : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
                   <Bookmark
-                    className={`w-4 h-4 mr-1 ${isMarked ? "text-yellow-500 fill-yellow-400" : ""}`}
+                    className={`w-4 h-4 mr-1 ${isMarked ? "text-yellow-400 fill-yellow-400" : ""}`}
                   />
                   {isMarked ? "Marked for Review" : "Mark for Review"}
                 </button>
@@ -662,11 +834,13 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
               <div
                 onClick={toggleMarkForReview}
-                className="text-gray-400 flex flex-col items-center cursor-pointer hover:text-gray-600"
+                className={`flex flex-col items-center cursor-pointer transition ${
+                  isDarkMode ? "text-slate-400 hover:text-slate-200" : "text-gray-400 hover:text-gray-600"
+                }`}
                 title="Toggle Mark for Review"
               >
                 <Bookmark
-                  className={`w-6 h-6 ${isMarked ? "text-yellow-500 fill-yellow-400" : ""}`}
+                  className={`w-6 h-6 ${isMarked ? "text-yellow-400 fill-yellow-400" : ""}`}
                 />
                 <span className="text-xs mt-1 text-center leading-tight hidden sm:block">
                   Mark for<br />Review
@@ -677,11 +851,11 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
             {/* Question Content */}
             <div className="p-5 flex-grow">
               {currentQuestion.topic && (
-                <span className="inline-block mb-2 text-[11px] font-semibold text-[#0056D2] bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full">
+                <span className="inline-block mb-2 text-[11px] font-semibold text-[#0056D2] bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 px-2.5 py-0.5 rounded-full">
                   {currentQuestion.topic}
                 </span>
               )}
-              <p className="text-gray-800 text-lg mb-6 leading-relaxed">
+              <p className={`text-lg mb-6 leading-relaxed ${isDarkMode ? "text-slate-100" : "text-gray-800"}`}>
                 {currentQuestion.question}
               </p>
 
@@ -695,8 +869,14 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                     <label
                       key={idx}
                       onClick={() => handleSelectOption(option)}
-                      className={`option-container flex items-center gap-3.5 sm:gap-4 p-3.5 sm:p-4 border border-gray-300 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors ${
-                        isSelected ? "selected" : ""
+                      className={`option-container flex items-center gap-3.5 sm:gap-4 p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-colors ${
+                        isSelected
+                          ? isDarkMode
+                            ? "selected border-blue-500 bg-blue-950/50 text-white"
+                            : "selected border-[#0056D2] bg-[#f0f7ff] text-gray-900"
+                          : isDarkMode
+                            ? "border-slate-800 bg-slate-900/90 hover:bg-slate-800/80 text-slate-200"
+                            : "border-gray-300 bg-white hover:bg-gray-50 text-gray-700"
                       }`}
                     >
                       <input
@@ -705,10 +885,10 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                         value={option}
                         checked={isSelected}
                         onChange={() => handleSelectOption(option)}
-                        className="custom-radio shrink-0 focus:ring-0"
+                        className={`custom-radio shrink-0 focus:ring-0 ${isDarkMode ? "dark-radio" : ""}`}
                       />
-                      <span className="text-gray-700 text-sm sm:text-base leading-snug">
-                        <strong className="font-bold text-gray-900 mr-2.5">{optId}.</strong>
+                      <span className={`text-sm sm:text-base leading-snug ${isDarkMode ? (isSelected ? "text-white" : "text-slate-200") : "text-gray-700"}`}>
+                        <strong className={`font-bold mr-2.5 ${isDarkMode ? "text-white" : "text-gray-900"}`}>{optId}.</strong>
                         <span>{option}</span>
                       </span>
                     </label>
@@ -731,7 +911,11 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
             <button
               onClick={handlePrev}
               disabled={currentQuestionIdx === 0}
-              className="bg-gray-100 text-gray-500 border border-gray-300 px-4 py-3 rounded-lg font-medium text-sm sm:text-base hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`px-4 py-3 rounded-lg font-medium text-sm sm:text-base border transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDarkMode
+                  ? "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                  : "bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200"
+              }`}
             >
               Previous Question
             </button>
@@ -772,15 +956,15 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
         />
 
         <div
-          className={`question-menu-drawer fixed inset-y-0 left-0 w-72 bg-white shadow-xl z-40 flex flex-col h-full ${
-            isDrawerOpen ? "open" : ""
-          }`}
+          className={`question-menu-drawer fixed inset-y-0 left-0 w-72 shadow-xl z-40 flex flex-col h-full transition-colors ${
+            isDarkMode ? "bg-slate-900 border-r border-slate-800 text-slate-100" : "bg-white text-gray-800"
+          } ${isDrawerOpen ? "open" : ""}`}
         >
-          <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
-            <h3 className="font-bold text-gray-800 text-lg">Questions</h3>
+          <div className={`p-4 border-b flex justify-between items-center ${isDarkMode ? "bg-slate-950 border-slate-800" : "bg-gray-50"}`}>
+            <h3 className={`font-bold text-lg ${isDarkMode ? "text-white" : "text-gray-800"}`}>Questions</h3>
             <button
               onClick={() => setIsDrawerOpen(false)}
-              className="text-gray-500 hover:text-gray-800 focus:outline-none p-1"
+              className={`p-1 focus:outline-none ${isDarkMode ? "text-slate-400 hover:text-white" : "text-gray-500 hover:text-gray-800"}`}
             >
               <X className="w-6 h-6" />
             </button>
@@ -793,8 +977,10 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                 const isAnswered = answers[i] !== undefined;
                 const isMarkedReview = markedForReview[i] === true;
 
-                let btnClass =
-                  "bg-gray-100 border border-gray-300 text-gray-700 hover:bg-gray-200";
+                let btnClass = isDarkMode
+                  ? "bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700"
+                  : "bg-gray-100 border border-gray-300 text-gray-700 hover:bg-gray-200";
+
                 if (isCurrent) {
                   btnClass = "bg-[#0056D2] text-white shadow-md";
                 } else if (isMarkedReview) {
@@ -818,8 +1004,8 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
               })}
             </div>
 
-            <div className="mt-8 border-t pt-4">
-              <h4 className="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+            <div className={`mt-8 border-t pt-4 ${isDarkMode ? "border-slate-800" : "border-gray-200"}`}>
+              <h4 className={`text-sm font-semibold mb-2 uppercase tracking-wide ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>
                 Legend
               </h4>
               <div className="space-y-2 text-sm">
@@ -830,7 +1016,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                   <div className="w-4 h-4 bg-green-500 rounded-full mr-2" /> Answered
                 </div>
                 <div className="flex items-center">
-                  <div className="w-4 h-4 bg-gray-200 border border-gray-300 rounded-full mr-2" />{" "}
+                  <div className={`w-4 h-4 rounded-full mr-2 border ${isDarkMode ? "bg-slate-800 border-slate-700" : "bg-gray-200 border-gray-300"}`} />{" "}
                   Unanswered
                 </div>
                 <div className="flex items-center">
@@ -846,28 +1032,32 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
         {/* ------------------------------------------------------------- */}
         {isReviewModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-scale-in">
-            <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6">
+            <div className={`w-full max-w-md border rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6 transition-colors ${
+              isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-gray-200 text-gray-800"
+            }`}>
               <div className="text-center">
-                <div className="w-14 h-14 rounded-full bg-blue-50 text-[#0056D2] border border-blue-200 flex items-center justify-center mx-auto mb-3">
+                <div className={`w-14 h-14 rounded-full border flex items-center justify-center mx-auto mb-3 ${
+                  isDarkMode ? "bg-blue-950/60 border-blue-800 text-blue-300" : "bg-blue-50 border-blue-200 text-[#0056D2]"
+                }`}>
                   <HelpCircle className="w-7 h-7" />
                 </div>
-                <h3 className="text-xl font-bold text-gray-800">Ready to Submit?</h3>
-                <p className="text-xs text-gray-500 mt-1">
+                <h3 className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>Ready to Submit?</h3>
+                <p className={`text-xs mt-1 ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>
                   Please review your examination status before final submission.
                 </p>
               </div>
 
               {/* Status Breakdown Grid */}
               <div className="grid grid-cols-3 gap-2.5 text-center">
-                <div className="p-3 bg-green-50 border border-green-200 rounded-xl">
-                  <p className="text-xl font-bold text-green-700">{answeredCount}</p>
-                  <p className="text-[11px] font-semibold text-green-800 mt-0.5">Answered</p>
+                <div className={`p-3 rounded-xl border ${isDarkMode ? "bg-emerald-950/40 border-emerald-800 text-emerald-300" : "bg-green-50 border-green-200 text-green-700"}`}>
+                  <p className="text-xl font-bold">{answeredCount}</p>
+                  <p className="text-[11px] font-semibold mt-0.5">Answered</p>
                 </div>
                 <div
                   className={`p-3 rounded-xl border ${
                     unansweredCount > 0
-                      ? "bg-red-50 border-red-200 text-red-700"
-                      : "bg-gray-50 border-gray-200 text-gray-500"
+                      ? isDarkMode ? "bg-red-950/40 border-red-800 text-red-300" : "bg-red-50 border-red-200 text-red-700"
+                      : isDarkMode ? "bg-slate-800 border-slate-700 text-slate-400" : "bg-gray-50 border-gray-200 text-gray-500"
                   }`}
                 >
                   <p className="text-xl font-bold">{unansweredCount}</p>
@@ -876,8 +1066,8 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                 <div
                   className={`p-3 rounded-xl border ${
                     markedCount > 0
-                      ? "bg-yellow-50 border-yellow-200 text-yellow-800"
-                      : "bg-gray-50 border-gray-200 text-gray-500"
+                      ? isDarkMode ? "bg-amber-950/40 border-amber-800 text-amber-300" : "bg-yellow-50 border-yellow-200 text-yellow-800"
+                      : isDarkMode ? "bg-slate-800 border-slate-700 text-slate-400" : "bg-gray-50 border-gray-200 text-gray-500"
                   }`}
                 >
                   <p className="text-xl font-bold">{markedCount}</p>
@@ -887,15 +1077,19 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
               {/* Warning Context */}
               {unansweredCount > 0 ? (
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
+                  isDarkMode ? "bg-amber-950/40 border-amber-800 text-amber-200" : "bg-amber-50 border-amber-200 text-amber-800"
+                }`}>
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <span>
                     You still have <strong>{unansweredCount} unanswered questions</strong>. Once submitted, you cannot modify your answers.
                   </span>
                 </div>
               ) : (
-                <div className="p-3 rounded-xl bg-green-50 border border-green-200 text-xs text-green-800 flex items-start gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                <div className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
+                  isDarkMode ? "bg-emerald-950/40 border-emerald-800 text-emerald-200" : "bg-green-50 border-green-200 text-green-800"
+                }`}>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                   <span>Great job! You have answered all {totalQuestions} questions.</span>
                 </div>
               )}
@@ -905,7 +1099,11 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                 <button
                   type="button"
                   onClick={() => setIsReviewModalOpen(false)}
-                  className="flex-1 py-2.5 px-4 rounded-xl border border-gray-300 text-gray-700 font-semibold text-xs hover:bg-gray-100 transition"
+                  className={`flex-1 py-2.5 px-4 rounded-xl border font-semibold text-xs transition ${
+                    isDarkMode
+                      ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+                  }`}
                 >
                   Review Questions
                 </button>
@@ -936,10 +1134,10 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   // STAGE 3: Auto-Graded Results & Breakdown Screen (Generation Theme)
   // -------------------------------------------------------------
   if (step === "completed" && submissionResult) {
-    const { score, maxScore, percentage, breakdown } = submissionResult;
+    const { score, maxScore, percentage, breakdown, tab_switches } = submissionResult;
 
     return (
-      <div className="min-h-screen flex flex-col bg-[#f3f4f6]">
+      <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? "bg-slate-950 text-slate-100" : "bg-[#f3f4f6] text-gray-800"}`}>
         {/* Header */}
         <header className="header-bg text-white shadow-md relative z-20">
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -954,9 +1152,19 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                 {quiz.title}
               </div>
             )}
-            <span className="text-xs bg-white/15 px-3 py-1 rounded-full font-medium">
-              Official Assessment Result
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleDarkMode}
+                title={isDarkMode ? "Switch to Light Theme" : "Switch to Dark Theme"}
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition flex items-center justify-center"
+              >
+                {isDarkMode ? <Sun className="w-5 h-5 text-amber-300" /> : <Moon className="w-5 h-5" />}
+              </button>
+              <span className="text-xs bg-white/15 px-3 py-1 rounded-full font-medium">
+                Official Assessment Result
+              </span>
+            </div>
           </div>
         </header>
 
@@ -969,7 +1177,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
         <main className="flex-grow p-4 md:px-8 max-w-3xl mx-auto w-full py-8 space-y-6">
           {/* Main Score Card */}
-          <div className="bg-white rounded-xl shadow-md p-6 sm:p-8 text-center border border-gray-200">
+          <div className={`rounded-xl shadow-md p-6 sm:p-8 text-center border transition-colors ${
+            isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-gray-200 text-gray-800"
+          }`}>
             <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-3 bg-[#0056D2]/10 text-[#0056D2]">
               {percentage >= 70 ? (
                 <Trophy className="w-8 h-8 text-amber-500" />
@@ -978,25 +1188,44 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
               )}
             </div>
 
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
+            <h1 className={`text-2xl sm:text-3xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>
               {percentage >= 70 ? "Congratulations" : "Exam Completed"}, {traineeName}!
             </h1>
-            <p className="text-xs text-gray-500 mt-1">
-              Your submission for <span className="font-semibold text-gray-700">&quot;{quiz.title}&quot;</span> has been recorded.
+            <p className={`text-xs mt-1 ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>
+              Your submission for <span className={`font-semibold ${isDarkMode ? "text-slate-200" : "text-gray-700"}`}>&quot;{quiz.title}&quot;</span> has been recorded.
             </p>
 
-            <div className="my-6 p-6 rounded-xl bg-gray-50 border border-gray-200 inline-block max-w-xs w-full">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Final Marks</p>
-              <div className="text-4xl font-extrabold text-[#0056D2] mt-1">
-                {score} <span className="text-xl font-normal text-gray-500">/ {maxScore}</span>
+            {/* Anti-Cheat Focus Summary */}
+            {tab_switches && tab_switches > 0 ? (
+              <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-xs font-semibold">
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>Proctoring Record: {tab_switches} tab switch{tab_switches > 1 ? "es" : ""} logged</span>
               </div>
-              <p className="text-sm font-semibold text-gray-700 mt-1">{percentage}% Score</p>
+            ) : (
+              <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-600 dark:text-emerald-300 text-xs font-semibold">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Clean Proctoring: 0 tab switches</span>
+              </div>
+            )}
+
+            <div className={`my-6 p-6 rounded-xl border inline-block max-w-xs w-full ${
+              isDarkMode ? "bg-slate-950 border-slate-800" : "bg-gray-50 border-gray-200"
+            }`}>
+              <p className={`text-xs font-semibold uppercase tracking-wider ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>Final Marks</p>
+              <div className="text-4xl font-extrabold text-[#0056D2] dark:text-blue-400 mt-1">
+                {score} <span className={`text-xl font-normal ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>/ {maxScore}</span>
+              </div>
+              <p className={`text-sm font-semibold mt-1 ${isDarkMode ? "text-slate-300" : "text-gray-700"}`}>{percentage}% Score</p>
             </div>
 
             <div>
               <button
                 onClick={handleRetake}
-                className="px-4 py-2.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold inline-flex items-center gap-1.5 transition"
+                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition ${
+                  isDarkMode
+                    ? "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+                    : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                }`}
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Retake Exam
               </button>
@@ -1004,8 +1233,10 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
           </div>
 
           {/* Breakdown List */}
-          <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 space-y-4">
-            <h2 className="text-base font-bold text-gray-800 border-b pb-3">
+          <div className={`rounded-xl shadow-md p-6 border space-y-4 transition-colors ${
+            isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-gray-200 text-gray-800"
+          }`}>
+            <h2 className={`text-base font-bold border-b pb-3 ${isDarkMode ? "text-white border-slate-800" : "text-gray-800 border-gray-200"}`}>
               Detailed Question Review
             </h2>
 
@@ -1015,47 +1246,49 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                   key={item.questionIndex}
                   className={`p-4 rounded-lg border ${
                     item.isCorrect
-                      ? "bg-green-50/50 border-green-200"
-                      : "bg-red-50/50 border-red-200"
+                      ? isDarkMode ? "bg-emerald-950/20 border-emerald-800/60" : "bg-green-50/50 border-green-200"
+                      : isDarkMode ? "bg-red-950/20 border-red-800/60" : "bg-red-50/50 border-red-200"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1 flex-1">
-                      <span className="text-xs font-bold text-gray-500 uppercase">
+                      <span className={`text-xs font-bold uppercase ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>
                         Question {item.questionIndex + 1}
                       </span>
-                      <p className="text-sm font-medium text-gray-800">{item.question}</p>
+                      <p className={`text-sm font-medium ${isDarkMode ? "text-slate-200" : "text-gray-800"}`}>{item.question}</p>
                     </div>
 
                     <div>
                       {item.isCorrect ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-950/50 px-2 py-0.5 rounded">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Correct
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-100 px-2 py-0.5 rounded">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-950/50 px-2 py-0.5 rounded">
                           <XCircle className="w-3.5 h-3.5" /> Incorrect
                         </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="mt-3 pt-2 border-t border-gray-200/60 text-xs space-y-1">
+                  <div className={`mt-3 pt-2 border-t text-xs space-y-1 ${isDarkMode ? "border-slate-800" : "border-gray-200/60"}`}>
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500">Your Answer:</span>
-                      <span className={`font-semibold ${item.isCorrect ? "text-green-700" : "text-red-600"}`}>
+                      <span className={isDarkMode ? "text-slate-400" : "text-gray-500"}>Your Answer:</span>
+                      <span className={`font-semibold ${item.isCorrect ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
                         {item.selectedAnswer || "(No answer selected)"}
                       </span>
                     </div>
                     {!item.isCorrect && (
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-500">Correct Answer:</span>
-                        <span className="font-semibold text-green-700">{item.correctAnswer}</span>
+                        <span className={isDarkMode ? "text-slate-400" : "text-gray-500"}>Correct Answer:</span>
+                        <span className="font-semibold text-green-600 dark:text-green-400">{item.correctAnswer}</span>
                       </div>
                     )}
                     {item.explanation && (
-                      <div className="mt-2 text-[11px] text-gray-600 bg-white p-2 rounded border border-gray-200">
-                        <strong className="text-[#0056D2]">Explanation: </strong>
+                      <div className={`mt-2 text-[11px] p-2 rounded border ${
+                        isDarkMode ? "bg-slate-950 border-slate-800 text-slate-300" : "bg-white border-gray-200 text-gray-600"
+                      }`}>
+                        <strong className="text-[#0056D2] dark:text-blue-400">Explanation: </strong>
                         {item.explanation}
                       </div>
                     )}

@@ -244,7 +244,8 @@ export async function submitQuizAttemptAction(
   quizId: string,
   traineeName: string,
   userAnswers: Record<number, string>,
-  servedOriginalIndices?: number[]
+  servedOriginalIndices?: number[],
+  tabSwitches: number = 0
 ): Promise<{
   success: boolean;
   result?: SubmissionResult;
@@ -288,9 +289,17 @@ export async function submitQuizAttemptAction(
       };
     });
 
-    const savedAttempt = await insertAttempt(quizId, cleanName, score, maxScore, breakdown, userAnswers);
+    const savedAttempt = await insertAttempt(
+      quizId,
+      cleanName,
+      score,
+      maxScore,
+      breakdown,
+      userAnswers,
+      tabSwitches
+    );
     // Mark live proctoring session as submitted
-    await recordStudentHeartbeat(quizId, cleanName, maxScore, maxScore, "submitted");
+    await recordStudentHeartbeat(quizId, cleanName, maxScore, maxScore, "submitted", tabSwitches);
 
     const percentage = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
 
@@ -302,6 +311,7 @@ export async function submitQuizAttemptAction(
         score,
         maxScore,
         percentage,
+        tab_switches: tabSwitches,
         breakdown,
       },
     };
@@ -317,7 +327,8 @@ export async function recordStudentHeartbeatAction(
   traineeName: string,
   answeredCount: number,
   totalQuestions: number,
-  status: "in_progress" | "submitted" = "in_progress"
+  status: "in_progress" | "submitted" = "in_progress",
+  tabSwitches: number = 0
 ): Promise<{ success: boolean; session?: ActiveStudentSession; error?: string }> {
   if (!quizId || !traineeName?.trim()) {
     return { success: false, error: "Missing required parameters" };
@@ -328,7 +339,8 @@ export async function recordStudentHeartbeatAction(
       traineeName,
       answeredCount,
       totalQuestions,
-      status
+      status,
+      tabSwitches
     );
     return { success: true, session };
   } catch (err: unknown) {

@@ -45,6 +45,7 @@ export interface ActiveStudentSession {
   answered_count: number;
   total_questions: number;
   status: "in_progress" | "submitted";
+  tab_switches?: number;
   last_active: string;
 }
 
@@ -54,6 +55,7 @@ export interface Attempt {
   trainee_name: string;
   score: number;
   max_score: number;
+  tab_switches?: number;
   breakdown?: QuestionBreakdown[];
   answers?: Record<number, string>;
   submitted_at: string;
@@ -80,5 +82,6 @@ export interface SubmissionResult {
   score: number;
   maxScore: number;
   percentage: number;
+  tab_switches?: number;
   breakdown: QuestionBreakdown[];
 }

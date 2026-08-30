@@ -598,7 +598,14 @@ export default function AnalyticsModal({
                                 {attempt.trainee_name.charAt(0).toUpperCase()}
                               </div>
                               <div className="min-w-0">
-                                <h4 className="font-bold text-gray-800 text-sm truncate">{attempt.trainee_name}</h4>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="font-bold text-gray-800 text-sm truncate">{attempt.trainee_name}</h4>
+                                  {attempt.tab_switches && attempt.tab_switches > 0 ? (
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold shrink-0">
+                                      ⚠️ {attempt.tab_switches} switch{attempt.tab_switches > 1 ? "es" : ""}
+                                    </span>
+                                  ) : null}
+                                </div>
                                 <p className="text-[10px] text-gray-400 flex items-center gap-1">
                                   <Clock className="w-3 h-3" />
                                   {formatDate(attempt.submitted_at)}
@@ -673,7 +680,14 @@ export default function AnalyticsModal({
                                   <div className="w-8 h-8 rounded-full bg-blue-50 text-[#0056D2] font-semibold text-xs flex items-center justify-center border border-blue-200">
                                     {attempt.trainee_name.charAt(0).toUpperCase()}
                                   </div>
-                                  <span className="font-semibold text-gray-800">{attempt.trainee_name}</span>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-semibold text-gray-800">{attempt.trainee_name}</span>
+                                    {attempt.tab_switches && attempt.tab_switches > 0 ? (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold flex items-center gap-1">
+                                        ⚠️ {attempt.tab_switches} switch{attempt.tab_switches > 1 ? "es" : ""}
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 </div>
                               </td>
                               <td className="py-3 px-4">
@@ -769,7 +783,22 @@ export default function AnalyticsModal({
                               {session.trainee_name.charAt(0).toUpperCase()}
                             </div>
                             <div>
-                              <h4 className="font-bold text-gray-800 text-sm">{session.trainee_name}</h4>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <h4 className="font-bold text-gray-800 text-sm">{session.trainee_name}</h4>
+                                {session.tab_switches && session.tab_switches > 0 ? (
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold border flex items-center gap-1 ${
+                                    session.tab_switches >= 3
+                                      ? "bg-red-50 text-red-700 border-red-200 animate-pulse"
+                                      : "bg-amber-50 text-amber-700 border-amber-200"
+                                  }`}>
+                                    ⚠️ {session.tab_switches} switch{session.tab_switches > 1 ? "es" : ""}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-400 border border-gray-200">
+                                    0 switches
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-[11px] text-gray-500">
                                 {isSubmitted ? "Exam finished" : "Currently taking exam"}
                               </p>
@@ -844,6 +873,15 @@ export default function AnalyticsModal({
                     <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-blue-50 text-[#0056D2] font-semibold border border-blue-200 shrink-0">
                       {inspectedAttempt.score}/{inspectedAttempt.max_score || sampleMaxScore} Correct
                     </span>
+                    {inspectedAttempt.tab_switches && inspectedAttempt.tab_switches > 0 ? (
+                      <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold border border-amber-200 shrink-0 flex items-center gap-1">
+                        ⚠️ {inspectedAttempt.tab_switches} Tab Switch{inspectedAttempt.tab_switches > 1 ? "es" : ""}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 shrink-0">
+                        ✓ 0 Tab Switches
+                      </span>
+                    )}
                   </div>
                   <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
                     {formatDate(inspectedAttempt.submitted_at)}
