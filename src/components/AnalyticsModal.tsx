@@ -29,6 +29,7 @@ import {
   Tag,
   Edit3,
   Maximize2,
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -800,13 +801,25 @@ export default function AnalyticsModal({
                                     </span>
                                   )}
                                   {attempt.auto_submitted && (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold shrink-0 flex items-center gap-0.5">
-                                      <Clock className="w-3 h-3 text-purple-500" />
-                                      Auto-Submitted
-                                    </span>
+                                    attempt.auto_submitted_reason === "tab_switches_exceeded" || (attempt.tab_switches && attempt.tab_switches >= 10) ? (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-300 font-extrabold shrink-0 flex items-center gap-0.5">
+                                        🚨 Disqualified
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold shrink-0 flex items-center gap-0.5">
+                                        <Clock className="w-3 h-3 text-purple-500" />
+                                        Auto-Submitted
+                                      </span>
+                                    )
                                   )}
                                   {attempt.tab_switches && attempt.tab_switches > 0 ? (
-                                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold shrink-0">
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold shrink-0 border ${
+                                      attempt.tab_switches >= 10
+                                        ? "bg-red-50 text-red-700 border-red-200"
+                                        : attempt.tab_switches >= 5
+                                        ? "bg-amber-100 text-amber-900 border-amber-300 animate-pulse"
+                                        : "bg-amber-50 text-amber-700 border-amber-200"
+                                    }`}>
                                       ⚠️ {attempt.tab_switches} switch{attempt.tab_switches > 1 ? "es" : ""}
                                     </span>
                                   ) : null}
@@ -904,13 +917,25 @@ export default function AnalyticsModal({
                                       </span>
                                     )}
                                     {attempt.auto_submitted && (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold flex items-center gap-1">
-                                        <Clock className="w-3 h-3 text-purple-500" />
-                                        Auto-Submitted
-                                      </span>
+                                      attempt.auto_submitted_reason === "tab_switches_exceeded" || (attempt.tab_switches && attempt.tab_switches >= 10) ? (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-300 font-extrabold flex items-center gap-1">
+                                          🚨 Disqualified (Cheating)
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold flex items-center gap-1">
+                                          <Clock className="w-3 h-3 text-purple-500" />
+                                          Auto-Submitted
+                                        </span>
+                                      )
                                     )}
                                     {attempt.tab_switches && attempt.tab_switches > 0 ? (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold flex items-center gap-1">
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 border ${
+                                        attempt.tab_switches >= 10
+                                          ? "bg-red-50 text-red-700 border-red-200"
+                                          : attempt.tab_switches >= 5
+                                          ? "bg-amber-100 text-amber-900 border-amber-300 animate-pulse"
+                                          : "bg-amber-50 text-amber-800 border-amber-200"
+                                      }`}>
                                         ⚠️ {attempt.tab_switches} switch{attempt.tab_switches > 1 ? "es" : ""}
                                       </span>
                                     ) : null}
@@ -1031,7 +1056,9 @@ export default function AnalyticsModal({
                                 )}
                               </div>
                               <p className="text-[11px] text-gray-500">
-                                {session.auto_submitted
+                                {session.auto_submitted_reason === "tab_switches_exceeded" || (session.auto_submitted && (session.tab_switches || 0) >= 10)
+                                  ? "🚨 Disqualified for Cheating"
+                                  : session.auto_submitted
                                   ? "Time expired (Auto-finalized)"
                                   : isSubmitted
                                   ? "Exam finished"
@@ -1041,7 +1068,11 @@ export default function AnalyticsModal({
                           </div>
 
                           <div>
-                            {session.auto_submitted ? (
+                            {session.auto_submitted_reason === "tab_switches_exceeded" || (session.auto_submitted && (session.tab_switches || 0) >= 10) ? (
+                              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-red-100 text-red-800 font-extrabold border border-red-300 flex items-center gap-1">
+                                <ShieldAlert className="w-3 h-3 text-red-700" /> Disqualified
+                              </span>
+                            ) : session.auto_submitted ? (
                               <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 font-semibold border border-purple-200 flex items-center gap-1">
                                 <Clock className="w-3 h-3 text-purple-700" /> Auto-Submitted
                               </span>
@@ -1113,12 +1144,22 @@ export default function AnalyticsModal({
                       {inspectedAttempt.score}/{inspectedAttempt.max_score || sampleMaxScore} Correct
                     </span>
                     {inspectedAttempt.auto_submitted && (
-                      <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold border border-purple-200 shrink-0 flex items-center gap-1">
-                        ⏱️ Auto-submitted (Time Expired)
-                      </span>
+                      inspectedAttempt.auto_submitted_reason === "tab_switches_exceeded" || (inspectedAttempt.tab_switches && inspectedAttempt.tab_switches >= 10) ? (
+                        <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-800 font-extrabold border border-red-300 shrink-0 flex items-center gap-1">
+                          🚨 Disqualified (10+ Tab Switches)
+                        </span>
+                      ) : (
+                        <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold border border-purple-200 shrink-0 flex items-center gap-1">
+                          ⏱️ Auto-submitted (Time Expired)
+                        </span>
+                      )
                     )}
                     {inspectedAttempt.tab_switches && inspectedAttempt.tab_switches > 0 ? (
-                      <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold border border-amber-200 shrink-0 flex items-center gap-1">
+                      <span className={`text-[11px] sm:text-xs px-2 py-0.5 rounded-full font-bold shrink-0 flex items-center gap-1 border ${
+                        inspectedAttempt.tab_switches >= 10
+                          ? "bg-red-50 text-red-700 border-red-200"
+                          : "bg-amber-50 text-amber-700 border-amber-200"
+                      }`}>
                         ⚠️ {inspectedAttempt.tab_switches} Tab Switch{inspectedAttempt.tab_switches > 1 ? "es" : ""}
                       </span>
                     ) : (
@@ -1143,12 +1184,21 @@ export default function AnalyticsModal({
 
             {/* Auto-submitted Notice Banner */}
             {inspectedAttempt.auto_submitted && (
-              <div className="px-4 sm:px-6 py-3 bg-purple-50 border-b border-purple-200 flex items-start sm:items-center gap-2.5 text-xs text-purple-900">
-                <Clock className="w-4 h-4 text-purple-600 shrink-0 mt-0.5 sm:mt-0" />
-                <span>
-                  <strong>Automatic Submission Notice:</strong> This assessment was automatically submitted because the examinee left without submitting and the allocated time limit expired. Saved answers up to that point were graded.
-                </span>
-              </div>
+              inspectedAttempt.auto_submitted_reason === "tab_switches_exceeded" || (inspectedAttempt.tab_switches && inspectedAttempt.tab_switches >= 10) ? (
+                <div className="px-4 sm:px-6 py-3 bg-red-50 border-b border-red-200 flex items-start sm:items-center gap-2.5 text-xs text-red-900">
+                  <ShieldAlert className="w-4 h-4 text-red-600 shrink-0 mt-0.5 sm:mt-0" />
+                  <span>
+                    <strong>Proctoring Disqualification Notice:</strong> This assessment was automatically terminated and submitted because the examinee exceeded 10 tab switches ({inspectedAttempt.tab_switches} incidents recorded). The attempt has been permanently flagged for cheating.
+                  </span>
+                </div>
+              ) : (
+                <div className="px-4 sm:px-6 py-3 bg-purple-50 border-b border-purple-200 flex items-start sm:items-center gap-2.5 text-xs text-purple-900">
+                  <Clock className="w-4 h-4 text-purple-600 shrink-0 mt-0.5 sm:mt-0" />
+                  <span>
+                    <strong>Automatic Submission Notice:</strong> This assessment was automatically submitted because the examinee left without submitting and the allocated time limit expired. Saved answers up to that point were graded.
+                  </span>
+                </div>
+              )
             )}
 
             {/* Filter Tabs Bar */}

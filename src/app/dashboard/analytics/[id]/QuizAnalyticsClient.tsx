@@ -36,6 +36,7 @@ import {
   Eye,
   X,
   HelpCircle,
+  ShieldAlert,
 } from "lucide-react";
 import {
   getQuizAnalyticsAction,
@@ -641,14 +642,26 @@ export default function QuizAnalyticsClient({
                                       </span>
                                     )}
                                     {attempt.auto_submitted && (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold flex items-center gap-1">
-                                        <Clock className="w-3 h-3 text-purple-500" />
-                                        Auto-Submitted
-                                      </span>
+                                      attempt.auto_submitted_reason === "tab_switches_exceeded" || (attempt.tab_switches && attempt.tab_switches >= 10) ? (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-300 font-extrabold flex items-center gap-1">
+                                          🚨 Disqualified (Cheating)
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold flex items-center gap-1">
+                                          <Clock className="w-3 h-3 text-purple-500" />
+                                          Auto-Submitted
+                                        </span>
+                                      )
                                     )}
                                     {attempt.tab_switches && attempt.tab_switches > 0 ? (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold flex items-center gap-1">
-                                        ⚠️ {attempt.tab_switches} tab switch{attempt.tab_switches > 1 ? "es" : ""}
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 border ${
+                                        attempt.tab_switches >= 10
+                                          ? "bg-red-50 text-red-700 border-red-200"
+                                          : attempt.tab_switches >= 5
+                                          ? "bg-amber-100 text-amber-900 border-amber-300 animate-pulse"
+                                          : "bg-amber-50 text-amber-800 border-amber-200"
+                                      }`}>
+                                        ⚠️ {attempt.tab_switches} switch{attempt.tab_switches > 1 ? "es" : ""}
                                       </span>
                                     ) : (
                                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200 font-medium">
@@ -776,7 +789,9 @@ export default function QuizAnalyticsClient({
                             <div className="min-w-0">
                               <h4 className="font-extrabold text-gray-900 text-sm truncate">{session.trainee_name}</h4>
                               <p className="text-[11px] text-gray-500 mt-0.5">
-                                {session.auto_submitted
+                                {session.auto_submitted_reason === "tab_switches_exceeded" || (session.auto_submitted && (session.tab_switches || 0) >= 10)
+                                  ? "🚨 Disqualified for Cheating"
+                                  : session.auto_submitted
                                   ? "Time expired (Auto-finalized)"
                                   : isSubmitted
                                   ? "Exam finished"
@@ -787,14 +802,21 @@ export default function QuizAnalyticsClient({
 
                           <span
                             className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5 shrink-0 border ${
-                              session.auto_submitted
+                              session.auto_submitted_reason === "tab_switches_exceeded" || (session.auto_submitted && (session.tab_switches || 0) >= 10)
+                                ? "bg-red-100 text-red-800 border-red-300 font-extrabold"
+                                : session.auto_submitted
                                 ? "bg-purple-100 text-purple-800 border-purple-200"
                                 : isSubmitted
                                 ? "bg-emerald-100 text-emerald-800 border-emerald-200"
                                 : "bg-blue-50 text-[#0056D2] border-blue-200"
                             }`}
                           >
-                            {session.auto_submitted ? (
+                            {session.auto_submitted_reason === "tab_switches_exceeded" || (session.auto_submitted && (session.tab_switches || 0) >= 10) ? (
+                              <>
+                                <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+                                <span>Disqualified</span>
+                              </>
+                            ) : session.auto_submitted ? (
                               <>
                                 <Clock className="w-3.5 h-3.5 text-purple-600" />
                                 <span>Auto-Submitted</span>
@@ -890,13 +912,23 @@ export default function QuizAnalyticsClient({
                       {inspectedAttempt.trainee_name}&apos;s Assessment Answer Sheet
                     </h3>
                     {inspectedAttempt.auto_submitted && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300 font-bold flex items-center gap-1">
-                        ⏱️ Auto-submitted (Time Expired)
-                      </span>
+                      inspectedAttempt.auto_submitted_reason === "tab_switches_exceeded" || (inspectedAttempt.tab_switches && inspectedAttempt.tab_switches >= 10) ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-300 font-extrabold flex items-center gap-1">
+                          🚨 Disqualified (10+ Tab Switches)
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300 font-bold flex items-center gap-1">
+                          ⏱️ Auto-submitted (Time Expired)
+                        </span>
+                      )
                     )}
                     {inspectedAttempt.tab_switches && inspectedAttempt.tab_switches > 0 ? (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold flex items-center gap-1">
-                        ⚠️ {inspectedAttempt.tab_switches} tab switch{inspectedAttempt.tab_switches > 1 ? "es" : ""}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1 border ${
+                        inspectedAttempt.tab_switches >= 10
+                          ? "bg-red-50 text-red-700 border-red-200"
+                          : "bg-amber-100 text-amber-900 border-amber-300"
+                      }`}>
+                        ⚠️ {inspectedAttempt.tab_switches} switch{inspectedAttempt.tab_switches > 1 ? "es" : ""}
                       </span>
                     ) : null}
                   </div>
@@ -920,12 +952,21 @@ export default function QuizAnalyticsClient({
 
             {/* Auto-submitted Notice Banner */}
             {inspectedAttempt.auto_submitted && (
-              <div className="px-6 py-3 bg-purple-50 border-b border-purple-200 flex items-start sm:items-center gap-2.5 text-xs text-purple-900">
-                <Clock className="w-4 h-4 text-purple-600 shrink-0 mt-0.5 sm:mt-0" />
-                <span>
-                  <strong>Automatic Submission Notice:</strong> This assessment was automatically submitted because the examinee left without submitting and the allocated time limit expired. Saved answers up to that point were graded.
-                </span>
-              </div>
+              inspectedAttempt.auto_submitted_reason === "tab_switches_exceeded" || (inspectedAttempt.tab_switches && inspectedAttempt.tab_switches >= 10) ? (
+                <div className="px-6 py-3 bg-red-50 border-b border-red-200 flex items-start sm:items-center gap-2.5 text-xs text-red-900">
+                  <ShieldAlert className="w-4 h-4 text-red-600 shrink-0 mt-0.5 sm:mt-0" />
+                  <span>
+                    <strong>Proctoring Disqualification Notice:</strong> This assessment was automatically terminated and submitted because the examinee exceeded 10 tab switches ({inspectedAttempt.tab_switches} incidents recorded). The attempt has been permanently flagged for cheating.
+                  </span>
+                </div>
+              ) : (
+                <div className="px-6 py-3 bg-purple-50 border-b border-purple-200 flex items-start sm:items-center gap-2.5 text-xs text-purple-900">
+                  <Clock className="w-4 h-4 text-purple-600 shrink-0 mt-0.5 sm:mt-0" />
+                  <span>
+                    <strong>Automatic Submission Notice:</strong> This assessment was automatically submitted because the examinee left without submitting and the allocated time limit expired. Saved answers up to that point were graded.
+                  </span>
+                </div>
+              )
             )}
 
             {/* Filter Tabs */}

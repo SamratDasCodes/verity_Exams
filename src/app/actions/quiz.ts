@@ -299,7 +299,8 @@ export async function submitQuizAttemptAction(
   servedOriginalIndices?: number[],
   tabSwitches: number = 0,
   mode: "exam" | "practice" = "exam",
-  auto_submitted: boolean = false
+  auto_submitted: boolean = false,
+  auto_submitted_reason?: "time_expired" | "tab_switches_exceeded"
 ): Promise<{
   success: boolean;
   result?: SubmissionResult;
@@ -309,6 +310,9 @@ export async function submitQuizAttemptAction(
   if (!cleanName) {
     return { success: false, error: "Trainee name is required before submission." };
   }
+
+  const effectiveReason: "time_expired" | "tab_switches_exceeded" | undefined =
+    auto_submitted_reason || (auto_submitted && tabSwitches >= 10 ? "tab_switches_exceeded" : auto_submitted ? "time_expired" : undefined);
 
   try {
     const quiz = await fetchQuizById(quizId);
@@ -352,12 +356,14 @@ export async function submitQuizAttemptAction(
       userAnswers,
       tabSwitches,
       mode,
-      auto_submitted
+      auto_submitted,
+      effectiveReason
     );
     // Mark live proctoring session as submitted
     await saveStudentSessionProgress(quizId, cleanName, {
       status: "submitted",
       auto_submitted,
+      auto_submitted_reason: effectiveReason,
       answered_count: maxScore,
       total_questions: maxScore,
       tab_switches: tabSwitches,
@@ -377,6 +383,7 @@ export async function submitQuizAttemptAction(
         mode,
         breakdown,
         auto_submitted,
+        auto_submitted_reason: effectiveReason,
       },
     };
   } catch (err: unknown) {
@@ -439,6 +446,18 @@ export async function checkStudentSessionAction(
     const completedAttempt = await fetchStudentAttempt(quizId, cleanName);
     if (completedAttempt) {
       const isAuto = Boolean(completedAttempt.auto_submitted);
+      const isCheating =
+        completedAttempt.auto_submitted_reason === "tab_switches_exceeded" ||
+        (completedAttempt.tab_switches && completedAttempt.tab_switches >= 10);
+
+      const message = isCheating
+        ? "🚨 Disqualified: You previously accessed this assessment and exceeded 10 tab switches. Your exam was terminated and submitted for cheating."
+        : isAuto
+        ? "⚠️ Time Expired: You previously started this exam and left without submitting. Your exam was automatically finalized and submitted when the allocated due time expired."
+        : `Assessment Completed: You have already completed and submitted this assessment on ${new Date(
+            completedAttempt.submitted_at
+          ).toLocaleDateString()}.`;
+
       return {
         success: true,
         status: isAuto ? "auto_submitted" : "completed",
@@ -456,18 +475,45 @@ export async function checkStudentSessionAction(
           mode: completedAttempt.mode,
           breakdown: completedAttempt.breakdown || [],
           auto_submitted: isAuto,
+          auto_submitted_reason: isCheating ? "tab_switches_exceeded" : isAuto ? "time_expired" : undefined,
         },
-        message: isAuto
-          ? "⚠️ Time Expired: You previously started this exam and left without submitting. Your exam was automatically finalized and submitted when the allocated due time expired."
-          : `Assessment Completed: You have already completed and submitted this assessment on ${new Date(
-              completedAttempt.submitted_at
-            ).toLocaleDateString()}.`,
+        message,
       };
     }
 
     // 3. Check for an in-progress session
     const activeSession = await fetchStudentActiveSession(quizId, cleanName);
     if (activeSession && activeSession.status === "in_progress") {
+      // If student has 10 or more tab switches, finalize immediately
+      if (activeSession.tab_switches && activeSession.tab_switches >= 10) {
+        await autoFinalizeExpiredSessions(quizId);
+        const autoAttempt = await fetchStudentAttempt(quizId, cleanName);
+        if (autoAttempt) {
+          return {
+            success: true,
+            status: "auto_submitted",
+            attempt: autoAttempt,
+            submissionResult: {
+              attemptId: autoAttempt.id,
+              traineeName: autoAttempt.trainee_name,
+              score: autoAttempt.score,
+              maxScore: autoAttempt.max_score,
+              percentage:
+                autoAttempt.max_score > 0
+                  ? Math.round((autoAttempt.score / autoAttempt.max_score) * 100)
+                  : 0,
+              tab_switches: autoAttempt.tab_switches,
+              mode: autoAttempt.mode,
+              breakdown: autoAttempt.breakdown || [],
+              auto_submitted: true,
+              auto_submitted_reason: "tab_switches_exceeded",
+            },
+            message:
+              "🚨 Disqualified: Exam Terminated for Cheating. You exceeded 10 tab switches.",
+          };
+        }
+      }
+
       let secondsLeft: number | undefined = undefined;
       if (activeSession.expires_at) {
         const expMs = new Date(activeSession.expires_at).getTime();
@@ -494,6 +540,7 @@ export async function checkStudentSessionAction(
                 mode: autoAttempt.mode,
                 breakdown: autoAttempt.breakdown || [],
                 auto_submitted: true,
+                auto_submitted_reason: "time_expired",
               },
               message:
                 "⚠️ Time Expired: Your allocated exam time has passed. Your answers have been automatically submitted.",

@@ -42,6 +42,74 @@ interface QuizRunnerProps {
   quiz: QuizPublic;
 }
 
+// Web Audio API synthesizers for proctoring alerts & error sounds
+function playCheatWarningSound() {
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    // Dual-tone dissonant alert beep (Tone 1: 587Hz D5 -> Tone 2: 370Hz F#4)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = "sawtooth";
+    osc1.frequency.setValueAtTime(587.33, now);
+    gain1.gain.setValueAtTime(0.3, now);
+    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.22);
+
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = "sawtooth";
+    osc2.frequency.setValueAtTime(369.99, now + 0.25);
+    gain2.gain.setValueAtTime(0.35, now + 0.25);
+    gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.55);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.25);
+    osc2.stop(now + 0.55);
+  } catch (err) {
+    console.warn("Could not play cheat warning sound:", err);
+  }
+}
+
+function playDisqualificationSound() {
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.exponentialRampToValueAtTime(110, now + 0.7);
+    gain.gain.setValueAtTime(0.45, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.7);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.7);
+  } catch (err) {
+    console.warn("Could not play disqualification sound:", err);
+  }
+}
+
 export default function QuizRunner({ quiz }: QuizRunnerProps) {
   const isPracticeMode = quiz.mode === "practice";
 
@@ -94,7 +162,14 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   // Tab-Switch & Focus Loss tracking (Anti-Cheat Proctoring)
   const [tabSwitches, setTabSwitches] = useState<number>(0);
   const [tabWarning, setTabWarning] = useState<string | null>(null);
+  const [showTabSwitchWarningModal, setShowTabSwitchWarningModal] = useState<boolean>(false);
+  const [warningModalSwitches, setWarningModalSwitches] = useState<number>(0);
   const lastSwitchTimestampRef = useRef<number>(0);
+  const handleSubmitQuizRef = useRef<(options?: {
+    auto_submitted?: boolean;
+    auto_submitted_reason?: "time_expired" | "tab_switches_exceeded";
+    customTabSwitches?: number;
+  }) => Promise<void>>(() => Promise.resolve());
 
   // Freeze exam questions in local state so Next.js server revalidations NEVER change questions mid-exam
   const [examQuestions, setExamQuestions] = useState<PublicQuestionItem[]>(quiz.questions);
@@ -250,6 +325,23 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
         setTabWarning(`⚠️ Attention: Tab switch detected (#${nextCount})! This incident has been logged for the proctor.`);
         setTimeout(() => setTabWarning(null), 5000);
 
+        // Proctoring violation thresholds
+        if (nextCount >= 10) {
+          // Crossed 10 tab switches: auto-submit for cheating
+          playDisqualificationSound();
+          setShowTabSwitchWarningModal(false);
+          handleSubmitQuizRef.current({
+            auto_submitted: true,
+            auto_submitted_reason: "tab_switches_exceeded",
+            customTabSwitches: nextCount,
+          });
+        } else if (nextCount >= 5) {
+          // Crossed 5 tab switches: alert with popup and error sound
+          playCheatWarningSound();
+          setWarningModalSwitches(nextCount);
+          setShowTabSwitchWarningModal(true);
+        }
+
         // Instantly notify proctor live
         if (traineeName) {
           recordStudentHeartbeatAction(
@@ -257,7 +349,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
             traineeName,
             answeredCount,
             totalQuestions,
-            "in_progress",
+            nextCount >= 10 ? "submitted" : "in_progress",
             nextCount
           );
         }
@@ -295,7 +387,10 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     if (step !== "in_progress" || secondsLeft === null) return;
 
     if (secondsLeft <= 0) {
-      handleSubmitQuiz();
+      handleSubmitQuizRef.current({
+        auto_submitted: true,
+        auto_submitted_reason: "time_expired",
+      });
       return;
     }
 
@@ -694,10 +789,19 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     }
   };
 
-  const handleSubmitQuiz = async () => {
+  const handleSubmitQuiz = async (options?: {
+    auto_submitted?: boolean;
+    auto_submitted_reason?: "time_expired" | "tab_switches_exceeded";
+    customTabSwitches?: number;
+  }) => {
     setIsReviewModalOpen(false);
+    setShowTabSwitchWarningModal(false);
     setSubmitError(null);
     setSubmitting(true);
+
+    const isAuto = Boolean(options?.auto_submitted);
+    const autoReason = options?.auto_submitted_reason;
+    const finalSwitches = options?.customTabSwitches !== undefined ? options.customTabSwitches : tabSwitches;
 
     try {
       const servedIndices = examQuestions.map((q) => q.originalIndex);
@@ -706,8 +810,10 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
         traineeName,
         answers,
         servedIndices,
-        tabSwitches,
-        isPracticeMode ? "practice" : "exam"
+        finalSwitches,
+        isPracticeMode ? "practice" : "exam",
+        isAuto,
+        autoReason
       );
       if (res.success && res.result) {
         // Exit fullscreen upon completion
@@ -742,6 +848,8 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
       setSubmitting(false);
     }
   };
+
+  handleSubmitQuizRef.current = handleSubmitQuiz;
 
   const handleRetake = () => {
     try {
@@ -1771,7 +1879,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={handleSubmitQuiz}
+                  onClick={() => handleSubmitQuiz()}
                   disabled={submitting}
                   className="flex-1 py-2.5 px-4 rounded-xl bg-green-600 hover:bg-green-700 text-white font-semibold text-xs shadow-md transition flex items-center justify-center gap-1.5"
                 >
@@ -1788,6 +1896,59 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
             </div>
           </div>
         )}
+
+        {/* Tab Switch Excessive Warning Modal (> 5 switches) */}
+        {showTabSwitchWarningModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-scale-in">
+            <div className={`w-full max-w-md rounded-2xl border-2 shadow-2xl p-6 space-y-4 text-center transition-colors ${
+              isDarkMode
+                ? "bg-slate-900 border-red-500/80 text-white"
+                : "bg-white border-red-500 text-gray-900"
+            }`}>
+              <div className="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 shadow-inner">
+                <ShieldAlert className="w-9 h-9" />
+              </div>
+
+              <div>
+                <span className="inline-block px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800 mb-2">
+                  Proctoring Violation Warning
+                </span>
+                <h3 className="text-xl font-black text-red-600 dark:text-red-400">
+                  Excessive Tab Switches Detected!
+                </h3>
+              </div>
+
+              <div className={`p-4 rounded-xl border text-sm text-left space-y-2.5 ${
+                isDarkMode ? "bg-slate-950 border-red-900/50 text-slate-200" : "bg-red-50/70 border-red-200 text-gray-800"
+              }`}>
+                <div className="flex items-center justify-between text-xs font-bold border-b pb-2 border-red-200 dark:border-red-900/60">
+                  <span>Incidents Recorded:</span>
+                  <span className="text-red-600 dark:text-red-400 font-extrabold text-sm">
+                    {warningModalSwitches} of 10 Maximum Switches
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed text-gray-700 dark:text-slate-300">
+                  You have switched tabs or lost window focus <strong>{warningModalSwitches} times</strong>.
+                </p>
+                <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-xs font-semibold text-red-700 dark:text-red-300">
+                  ⚠️ <strong>CRITICAL WARNING:</strong> Crossing <strong>10 tab switches</strong> will immediately terminate your assessment and automatically submit your exam marked as <strong>Disqualified for Cheating</strong>.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTabSwitchWarningModal(false);
+                  requestFullscreenMode();
+                }}
+                className="w-full py-3.5 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm shadow-lg transition flex items-center justify-center gap-2"
+              >
+                <span>I Understand — Return to Assessment</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1797,6 +1958,10 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   // -------------------------------------------------------------
   if (step === "completed" && submissionResult) {
     const { score, maxScore, percentage, breakdown, tab_switches } = submissionResult;
+    const isDisqualified = Boolean(
+      submissionResult.auto_submitted_reason === "tab_switches_exceeded" ||
+      (submissionResult.auto_submitted && (tab_switches || 0) >= 10)
+    );
 
     return (
       <div className={`min-h-screen flex flex-col transition-colors duration-200 ${isDarkMode ? "bg-slate-950 text-slate-100" : "bg-[#f3f4f6] text-gray-800"}`}>
@@ -1842,22 +2007,39 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
           <div className={`rounded-xl shadow-md p-6 sm:p-8 text-center border transition-colors ${
             isDarkMode ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-gray-200 text-gray-800"
           }`}>
-            <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-3 bg-[#0056D2]/10 text-[#0056D2]">
-              {percentage >= 70 ? (
+            <div className={`w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-3 ${
+              isDisqualified
+                ? "bg-red-500/10 text-red-600 border border-red-500/30"
+                : "bg-[#0056D2]/10 text-[#0056D2]"
+            }`}>
+              {isDisqualified ? (
+                <ShieldAlert className="w-8 h-8 text-red-600 dark:text-red-400" />
+              ) : percentage >= 70 ? (
                 <Trophy className="w-8 h-8 text-amber-500" />
               ) : (
                 <Award className="w-8 h-8 text-[#0056D2]" />
               )}
             </div>
 
-            <h1 className={`text-2xl sm:text-3xl font-bold ${isDarkMode ? "text-white" : "text-gray-800"}`}>
-              {isPracticeMode
-                ? percentage >= 70 ? "Well Done, " : "Practice Completed, "
-                : percentage >= 70 ? "Congratulations, " : "Exam Completed, "}
-              {traineeName}!
+            <h1 className={`text-2xl sm:text-3xl font-bold ${
+              isDisqualified ? "text-red-600 dark:text-red-400" : isDarkMode ? "text-white" : "text-gray-800"
+            }`}>
+              {isDisqualified
+                ? `Disqualified: Exam Terminated, ${traineeName}`
+                : isPracticeMode
+                ? percentage >= 70 ? `Well Done, ${traineeName}!` : `Practice Completed, ${traineeName}!`
+                : percentage >= 70 ? `Congratulations, ${traineeName}!` : `Exam Completed, ${traineeName}!`}
             </h1>
             <p className={`text-xs mt-1 ${isDarkMode ? "text-slate-400" : "text-gray-500"}`}>
-              Your {isPracticeMode ? "practice attempt" : "official submission"} for <span className={`font-semibold ${isDarkMode ? "text-slate-200" : "text-gray-700"}`}>&quot;{quiz.title}&quot;</span> has been recorded.
+              {isDisqualified
+                ? "Your assessment was automatically terminated and submitted due to exceeding proctoring limits."
+                : `Your ${isPracticeMode ? "practice attempt" : "official submission"} for `}
+              {!isDisqualified && (
+                <span className={`font-semibold ${isDarkMode ? "text-slate-200" : "text-gray-700"}`}>
+                  &quot;{quiz.title}&quot;
+                </span>
+              )}
+              {!isDisqualified && " has been recorded."}
             </p>
 
             {/* Anti-Cheat Focus Summary or Practice Mode Tag */}
@@ -1865,6 +2047,11 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
               <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/40 text-blue-600 dark:text-blue-300 text-xs font-semibold">
                 <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
                 <span>Self-Paced Practice Drill • Attempt Logged</span>
+              </div>
+            ) : isDisqualified ? (
+              <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-500/20 border border-red-500/50 text-red-700 dark:text-red-300 text-xs font-bold animate-pulse">
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>Proctoring Disqualification: {tab_switches} tab switches recorded (Limit: 10)</span>
               </div>
             ) : tab_switches && tab_switches > 0 ? (
               <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-xs font-semibold">
@@ -1878,7 +2065,19 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
               </div>
             )}
 
-            {submissionResult?.auto_submitted && (
+            {isDisqualified ? (
+              <div className="mt-4 max-w-md mx-auto p-4 rounded-xl bg-red-500/15 border border-red-500/30 text-red-800 dark:text-red-200 text-xs text-left flex items-start gap-2.5 shadow-sm">
+                <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-bold text-sm text-red-900 dark:text-red-100">
+                    Disqualified for Cheating (10+ Tab Switches)
+                  </p>
+                  <p className="mt-1 opacity-90 leading-relaxed">
+                    This assessment was automatically terminated and submitted because you exceeded 10 tab switches ({tab_switches} focus loss incidents recorded). This attempt has been permanently flagged for proctor review.
+                  </p>
+                </div>
+              </div>
+            ) : submissionResult?.auto_submitted ? (
               <div className="mt-4 max-w-md mx-auto p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs text-left flex items-start gap-2.5 shadow-sm">
                 <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
                 <div>
@@ -1888,7 +2087,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                   </p>
                 </div>
               </div>
-            )}
+            ) : null}
 
             <div className={`my-6 p-6 rounded-xl border inline-block max-w-xs w-full ${
               isDarkMode ? "bg-slate-950 border-slate-800" : "bg-gray-50 border-gray-200"

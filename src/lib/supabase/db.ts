@@ -334,7 +334,8 @@ export async function insertAttempt(
   answers?: Record<number, string>,
   tab_switches: number = 0,
   mode: "exam" | "practice" = "exam",
-  auto_submitted: boolean = false
+  auto_submitted: boolean = false,
+  auto_submitted_reason?: "time_expired" | "tab_switches_exceeded"
 ): Promise<Attempt> {
   const supabase = getSupabaseClient();
   if (supabase) {
@@ -346,6 +347,9 @@ export async function insertAttempt(
       tab_switches,
       auto_submitted,
     };
+    if (auto_submitted_reason) {
+      payload.auto_submitted_reason = auto_submitted_reason;
+    }
     // Per user instructions: do NOT save heavy breakdown or answer lists for practice mode
     if (mode === "exam") {
       if (breakdown) payload.breakdown = breakdown;
@@ -388,6 +392,7 @@ export async function insertAttempt(
         tab_switches,
         mode,
         auto_submitted,
+        auto_submitted_reason,
       } as Attempt;
     }
     console.warn("Supabase insert attempt failed, saving to local store:", error?.message);
@@ -403,6 +408,7 @@ export async function insertAttempt(
     tab_switches,
     mode,
     auto_submitted,
+    auto_submitted_reason,
     breakdown: mode === "exam" ? breakdown : undefined,
     answers: mode === "exam" ? answers : undefined,
     submitted_at: new Date().toISOString(),
@@ -489,6 +495,7 @@ export async function saveStudentSessionProgress(
     started_at?: string;
     expires_at?: string;
     auto_submitted?: boolean;
+    auto_submitted_reason?: "time_expired" | "tab_switches_exceeded";
   }
 ): Promise<ActiveStudentSession> {
   const cleanName = traineeName.trim();
@@ -581,6 +588,7 @@ export async function saveStudentSessionProgress(
       served_indices: updates.served_indices,
       mode: updates.mode || "exam",
       auto_submitted: updates.auto_submitted,
+      auto_submitted_reason: updates.auto_submitted_reason,
     };
     store.live_sessions.unshift(newSession);
     saveLocalStore(store);
@@ -667,13 +675,18 @@ export async function autoFinalizeExpiredSessions(quizId?: string): Promise<Atte
       }
     }
 
-    if (isExpired) {
+    const isCheating = Boolean(session.tab_switches && session.tab_switches >= 10);
+
+    if (isExpired || isCheating) {
+      const reason: "time_expired" | "tab_switches_exceeded" = isCheating ? "tab_switches_exceeded" : "time_expired";
+
       // Check if attempt already exists to prevent duplicate submission
       const existingAttempt = await fetchStudentAttempt(session.quiz_id, session.trainee_name);
       if (existingAttempt) {
         await saveStudentSessionProgress(session.quiz_id, session.trainee_name, {
           status: "submitted",
           auto_submitted: true,
+          auto_submitted_reason: reason,
         });
         continue;
       }
@@ -715,13 +728,15 @@ export async function autoFinalizeExpiredSessions(quizId?: string): Promise<Atte
         userAnswers,
         session.tab_switches || 0,
         session.mode || "exam",
-        true // auto_submitted = true
+        true, // auto_submitted = true
+        reason
       );
 
       // Update session status
       await saveStudentSessionProgress(session.quiz_id, session.trainee_name, {
         status: "submitted",
         auto_submitted: true,
+        auto_submitted_reason: reason,
         answered_count: Object.keys(userAnswers).length,
       });
 

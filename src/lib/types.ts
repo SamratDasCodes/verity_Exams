@@ -59,6 +59,7 @@ export interface ActiveStudentSession {
   served_indices?: number[];
   mode?: "exam" | "practice";
   auto_submitted?: boolean;
+  auto_submitted_reason?: "time_expired" | "tab_switches_exceeded";
 }
 
 export interface Attempt {
@@ -73,6 +74,7 @@ export interface Attempt {
   answers?: Record<number, string>;
   submitted_at: string;
   auto_submitted?: boolean;
+  auto_submitted_reason?: "time_expired" | "tab_switches_exceeded";
 }
 
 export interface QuizWithStats extends Quiz {
@@ -100,4 +102,5 @@ export interface SubmissionResult {
   mode?: "exam" | "practice";
   breakdown: QuestionBreakdown[];
   auto_submitted?: boolean;
+  auto_submitted_reason?: "time_expired" | "tab_switches_exceeded";
 }
