@@ -112,9 +112,11 @@ body {
   transition: opacity 0.3s ease-in-out;
   opacity: 0;
   pointer-events: none;
+  display: none;
 }
 
 .menu-overlay-layer.open {
   opacity: 1;
   pointer-events: auto;
+  display: block;
 }

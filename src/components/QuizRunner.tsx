@@ -40,14 +40,7 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   const isPracticeMode = quiz.mode === "practice";
 
   // Theme state: dark mode toggle
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        return localStorage.getItem("verity_exam_theme") === "dark";
-      } catch {}
-    }
-    return false;
-  });
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
   const toggleDarkMode = () => {
     setIsDarkMode((prev) => {
@@ -93,74 +86,22 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   const [instantFeedback, setInstantFeedback] = useState<boolean>(true);
 
   // Tab-Switch & Focus Loss tracking (Anti-Cheat Proctoring)
-  const [tabSwitches, setTabSwitches] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const stored = sessionStorage.getItem(`active_exam_tab_switches_${quiz.id}`);
-        if (stored) return parseInt(stored, 10) || 0;
-      } catch {}
-    }
-    return 0;
-  });
+  const [tabSwitches, setTabSwitches] = useState<number>(0);
   const [tabWarning, setTabWarning] = useState<string | null>(null);
   const lastSwitchTimestampRef = useRef<number>(0);
 
   // Freeze exam questions in local state so Next.js server revalidations NEVER change questions mid-exam
-  const [examQuestions, setExamQuestions] = useState<PublicQuestionItem[]>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const cached = sessionStorage.getItem(`active_exam_questions_${quiz.id}`);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed;
-          }
-        }
-      } catch {}
-    }
-    return quiz.questions;
-  });
+  const [examQuestions, setExamQuestions] = useState<PublicQuestionItem[]>(quiz.questions);
 
-  const [step, setStep] = useState<"name_prompt" | "in_progress" | "completed">(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const savedStep = sessionStorage.getItem(`active_exam_step_${quiz.id}`);
-        if (savedStep === "in_progress") return "in_progress";
-      } catch {}
-    }
-    return "name_prompt";
-  });
+  const [step, setStep] = useState<"name_prompt" | "in_progress" | "completed">("name_prompt");
 
-  const [traineeName, setTraineeName] = useState(() => {
-    if (typeof window !== "undefined") {
-      try {
-        return sessionStorage.getItem(`active_exam_name_${quiz.id}`) || "";
-      } catch {}
-    }
-    return "";
-  });
+  const [traineeName, setTraineeName] = useState("");
 
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
 
-  const [answers, setAnswers] = useState<Record<number, string>>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const savedAnswers = sessionStorage.getItem(`active_exam_answers_${quiz.id}`);
-        if (savedAnswers) return JSON.parse(savedAnswers);
-      } catch {}
-    }
-    return {};
-  });
+  const [answers, setAnswers] = useState<Record<number, string>>({});
 
-  const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const savedMarked = sessionStorage.getItem(`active_exam_marked_${quiz.id}`);
-        if (savedMarked) return JSON.parse(savedMarked);
-      } catch {}
-    }
-    return {};
-  });
+  const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
@@ -177,17 +118,41 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   const totalDurationSeconds = (quiz.time_limit_minutes || 0) * 60;
   const [secondsLeft, setSecondsLeft] = useState<number | null>(() => {
     if (!quiz.time_limit_minutes || quiz.time_limit_minutes <= 0) return null;
-    if (typeof window !== "undefined") {
-      try {
-        const stored = sessionStorage.getItem(`active_exam_time_${quiz.id}`);
-        if (stored) {
-          const parsed = parseInt(stored, 10);
-          if (!isNaN(parsed) && parsed >= 0) return parsed;
-        }
-      } catch {}
-    }
     return quiz.time_limit_minutes * 60;
   });
+
+  // Client-side hydration: safely restore any active exam session from sessionStorage after mount
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("verity_exam_theme") === "dark") {
+        setIsDarkMode(true);
+      }
+      const savedStep = sessionStorage.getItem(`active_exam_step_${quiz.id}`);
+      if (savedStep === "in_progress") {
+        const cached = sessionStorage.getItem(`active_exam_questions_${quiz.id}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setExamQuestions(parsed);
+          }
+        }
+        const savedName = sessionStorage.getItem(`active_exam_name_${quiz.id}`);
+        if (savedName) setTraineeName(savedName);
+        const savedAnswers = sessionStorage.getItem(`active_exam_answers_${quiz.id}`);
+        if (savedAnswers) setAnswers(JSON.parse(savedAnswers));
+        const savedMarked = sessionStorage.getItem(`active_exam_marked_${quiz.id}`);
+        if (savedMarked) setMarkedForReview(JSON.parse(savedMarked));
+        const storedSwitches = sessionStorage.getItem(`active_exam_tab_switches_${quiz.id}`);
+        if (storedSwitches) setTabSwitches(parseInt(storedSwitches, 10) || 0);
+        const storedTime = sessionStorage.getItem(`active_exam_time_${quiz.id}`);
+        if (storedTime) {
+          const parsedTime = parseInt(storedTime, 10);
+          if (!isNaN(parsedTime) && parsedTime >= 0) setSecondsLeft(parsedTime);
+        }
+        setStep("in_progress");
+      }
+    } catch {}
+  }, [quiz.id]);
 
   const totalQuestions = examQuestions.length;
   const currentQuestion = examQuestions[currentQuestionIdx];
@@ -299,6 +264,12 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     };
 
     const handleWindowBlur = () => {
+      // On mobile devices, window.blur fires during touch scrolling, address bar collapse, keyboard changes, etc.
+      // If it's a touch device and document is NOT hidden, do not treat it as a tab switch.
+      const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+      if (isTouch && !document.hidden) {
+        return;
+      }
       handleFocusLoss();
     };
 
@@ -403,8 +374,8 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     }
     setNameError(null);
 
-    // Request full screen
-    await requestFullscreenMode();
+    // Request full screen (non-blocking so mobile rejections or restrictions do not stall exam start)
+    requestFullscreenMode().catch(() => {});
 
     // Lock session questions and trainee name
     try {
@@ -417,6 +388,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     } catch {}
 
     setStep("in_progress");
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
     recordStudentHeartbeatAction(quiz.id, traineeName.trim(), 0, totalQuestions, "in_progress", tabSwitches);
   };
 
@@ -450,6 +424,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     } catch {}
 
     setStep("in_progress");
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   const handlePracticeMissedQuestions = () => {
@@ -467,6 +444,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     setCurrentQuestionIdx(0);
     setSubmissionResult(null);
     setStep("in_progress");
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
 
     try {
       sessionStorage.setItem(`active_exam_questions_${quiz.id}`, JSON.stringify(toServe));
@@ -477,26 +457,24 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   };
 
   const handleSelectOption = (option: string) => {
-    setAnswers((prev) => {
-      const updated = {
-        ...prev,
-        [currentQuestionIdx]: option,
-      };
-      try {
-        sessionStorage.setItem(`active_exam_answers_${quiz.id}`, JSON.stringify(updated));
-      } catch {}
-      if (!isPracticeMode) {
-        recordStudentHeartbeatAction(
-          quiz.id,
-          traineeName,
-          Object.keys(updated).length,
-          totalQuestions,
-          "in_progress",
-          tabSwitches
-        );
-      }
-      return updated;
-    });
+    const updated = {
+      ...answers,
+      [currentQuestionIdx]: option,
+    };
+    setAnswers(updated);
+    try {
+      sessionStorage.setItem(`active_exam_answers_${quiz.id}`, JSON.stringify(updated));
+    } catch {}
+    if (!isPracticeMode) {
+      recordStudentHeartbeatAction(
+        quiz.id,
+        traineeName,
+        Object.keys(updated).length,
+        totalQuestions,
+        "in_progress",
+        tabSwitches
+      );
+    }
   };
 
   const toggleMarkForReview = () => {
@@ -515,12 +493,18 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   const handleNext = () => {
     if (currentQuestionIdx < totalQuestions - 1) {
       setCurrentQuestionIdx((prev) => prev + 1);
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
     }
   };
 
   const handlePrev = () => {
     if (currentQuestionIdx > 0) {
       setCurrentQuestionIdx((prev) => prev - 1);
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
     }
   };
 
@@ -560,6 +544,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
         setSubmissionResult(res.result);
         setStep("completed");
+        if (typeof window !== "undefined") {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
       } else {
         setSubmitError(res.error || "Failed to submit your answers.");
       }
@@ -588,6 +575,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     setSubmissionResult(null);
     setSecondsLeft(quiz.time_limit_minutes ? quiz.time_limit_minutes * 60 : null);
     setStep("name_prompt");
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   const formatTimeLeft = (sec: number) => {
@@ -1271,7 +1261,6 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                   return (
                     <label
                       key={idx}
-                      onClick={() => handleSelectOption(option)}
                       className={`option-container flex items-center gap-3.5 sm:gap-4 p-3.5 sm:p-4 border rounded-xl cursor-pointer transition-colors ${optionColorClass}`}
                     >
                       <input
@@ -1403,17 +1392,17 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
         </main>
 
         {/* Slide-over Drawer Menu */}
-        <div
-          onClick={() => setIsDrawerOpen(false)}
-          className={`menu-overlay-layer fixed inset-0 bg-black bg-opacity-50 z-30 ${
-            isDrawerOpen ? "open" : ""
-          }`}
-        />
+        {isDrawerOpen && (
+          <div
+            onClick={() => setIsDrawerOpen(false)}
+            className="fixed inset-0 bg-black bg-opacity-50 z-30 transition-opacity"
+          />
+        )}
 
         <div
           className={`question-menu-drawer fixed inset-y-0 left-0 w-72 shadow-xl z-40 flex flex-col h-full transition-colors ${
             isDarkMode ? "bg-slate-900 border-r border-slate-800 text-slate-100" : "bg-white text-gray-800"
-          } ${isDrawerOpen ? "open" : ""}`}
+          } ${isDrawerOpen ? "open pointer-events-auto" : "pointer-events-none"}`}
         >
           <div className={`p-4 border-b flex justify-between items-center ${isDarkMode ? "bg-slate-950 border-slate-800" : "bg-gray-50"}`}>
             <h3 className={`font-bold text-lg ${isDarkMode ? "text-white" : "text-gray-800"}`}>Questions</h3>
@@ -1450,6 +1439,9 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                     onClick={() => {
                       setCurrentQuestionIdx(i);
                       setIsDrawerOpen(false);
+                      if (typeof window !== "undefined") {
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }
                     }}
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 ${btnClass}`}
                   >
