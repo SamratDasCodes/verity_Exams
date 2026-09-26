@@ -28,7 +28,9 @@ import {
   Folder,
   Tag,
   Edit3,
+  Maximize2,
 } from "lucide-react";
+import Link from "next/link";
 import {
   getQuizAnalyticsAction,
   getLiveProctoringAction,
@@ -345,13 +347,24 @@ export default function AnalyticsModal({
 
             {/* Second row: Action Buttons */}
             <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
-              <button
-                onClick={() => setIsAddQuestionsOpen(true)}
-                className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-[#0056D2] font-semibold text-xs transition flex items-center gap-1.5"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                <span>Add More Questions</span>
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setIsAddQuestionsOpen(true)}
+                  className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-[#0056D2] font-semibold text-xs transition flex items-center gap-1.5"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Add More Questions</span>
+                </button>
+
+                <Link
+                  href={`/dashboard/analytics/${currentQuiz.id}`}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-semibold text-xs transition flex items-center gap-1.5 shadow-sm"
+                  title="Open Dedicated Full-Screen Page"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Open Separate Page ↗</span>
+                </Link>
+              </div>
 
               <div className="flex items-center gap-1.5">
                 <button
@@ -671,35 +684,46 @@ export default function AnalyticsModal({
           </div>
 
           {/* Tab Navigation: Completed Submissions vs. Live Proctoring Monitor */}
-          <div className="px-3 sm:px-6 pt-2 sm:pt-4 flex items-center border-b border-gray-200 bg-white">
-            <button
-              onClick={() => setActiveTab("completed")}
-              className={`flex-1 sm:flex-initial pb-2.5 sm:pb-3 font-semibold text-xs sm:text-sm border-b-2 transition flex items-center justify-center gap-1.5 sm:gap-2 ${
-                activeTab === "completed"
-                  ? "border-[#0056D2] text-[#0056D2]"
-                  : "border-transparent text-gray-500 hover:text-gray-800"
-              }`}
-            >
-              <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              <span className="sm:hidden">Submissions ({attempts.length})</span>
-              <span className="hidden sm:inline">Completed Submissions ({attempts.length})</span>
-            </button>
+          <div className="px-3 sm:px-6 pt-2 sm:pt-4 flex items-center justify-between border-b border-gray-200 bg-white flex-wrap gap-2">
+            <div className="flex items-center gap-2 sm:gap-4 flex-1">
+              <button
+                onClick={() => setActiveTab("completed")}
+                className={`pb-2.5 sm:pb-3 font-semibold text-xs sm:text-sm border-b-2 transition flex items-center justify-center gap-1.5 sm:gap-2 ${
+                  activeTab === "completed"
+                    ? "border-[#0056D2] text-[#0056D2]"
+                    : "border-transparent text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="sm:hidden">Submissions ({attempts.length})</span>
+                <span className="hidden sm:inline">Completed Submissions ({attempts.length})</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab("live_monitor")}
-              className={`flex-1 sm:flex-initial pb-2.5 sm:pb-3 font-semibold text-xs sm:text-sm border-b-2 transition flex items-center justify-center gap-1.5 sm:gap-2 ${
-                activeTab === "live_monitor"
-                  ? "border-emerald-600 text-emerald-700"
-                  : "border-transparent text-gray-500 hover:text-gray-800"
-              }`}
+              <button
+                onClick={() => setActiveTab("live_monitor")}
+                className={`pb-2.5 sm:pb-3 font-semibold text-xs sm:text-sm border-b-2 transition flex items-center justify-center gap-1.5 sm:gap-2 ${
+                  activeTab === "live_monitor"
+                    ? "border-emerald-600 text-emerald-700"
+                    : "border-transparent text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                <span className="relative flex h-2 w-2 sm:h-2.5 sm:w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 sm:h-2.5 sm:w-2.5 bg-emerald-500" />
+                </span>
+                <span className="sm:hidden">Live ({activeLiveCount})</span>
+                <span className="hidden sm:inline">Live Classroom Monitor ({activeLiveCount} Taking Exam)</span>
+              </button>
+            </div>
+
+            <Link
+              href={`/dashboard/analytics/${currentQuiz.id}`}
+              className="pb-2.5 sm:pb-3 text-xs font-bold text-[#0056D2] hover:text-[#0045A8] flex items-center gap-1 shrink-0"
+              title="View full-page un-congested details"
             >
-              <span className="relative flex h-2 w-2 sm:h-2.5 sm:w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 sm:h-2.5 sm:w-2.5 bg-emerald-500" />
-              </span>
-              <span className="sm:hidden">Live ({activeLiveCount})</span>
-              <span className="hidden sm:inline">Live Classroom Monitor ({activeLiveCount} Taking Exam)</span>
-            </button>
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Full Page View ↗</span>
+            </Link>
           </div>
 
           {/* Tab 1: Completed Attendees Table */}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import {
   Plus,
   BarChart3,
@@ -639,14 +640,15 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
                                 <span className="hidden lg:inline">{copiedId === `practice_${quiz.id}` ? "Copied!" : "Practice Link"}</span>
                               </button>
 
-                              <button
-                                onClick={() => setSelectedQuizForAnalytics(quiz)}
+                              <Link
+                                href={`/dashboard/analytics/${quiz.id}`}
+                                onClick={(e) => e.stopPropagation()}
                                 className="px-2.5 py-1.5 rounded-lg bg-[#0056D2]/10 hover:bg-[#0056D2]/20 text-[#0056D2] text-xs font-semibold transition inline-flex items-center gap-1 border border-[#0056D2]/20"
-                                title="View Attendees & Analytics"
+                                title="View Submissions, Answer Sheets & Live Monitor on Separate Page"
                               >
                                 <BarChart3 className="w-3.5 h-3.5" />
                                 <span className="hidden md:inline">Analytics</span>
-                              </button>
+                              </Link>
 
                               <a
                                 href={`/quiz/${quiz.id}`}
@@ -790,13 +792,13 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
 
                     {/* Bottom Action Buttons */}
                     <div className="flex items-center gap-2 pt-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => setSelectedQuizForAnalytics(quiz)}
+                      <Link
+                        href={`/dashboard/analytics/${quiz.id}`}
                         className="flex-1 py-2 px-3 rounded-xl bg-[#0056D2] hover:bg-[#0045A8] text-white text-xs font-semibold shadow transition flex items-center justify-center gap-1.5 min-w-[130px]"
                       >
                         <BarChart3 className="w-3.5 h-3.5" />
-                        <span>Analytics</span>
-                      </button>
+                        <span>Analytics & Monitor</span>
+                      </Link>
 
                       <button
                         onClick={(e) => handleCopyPracticeLink(e, quiz.id)}
@@ -948,6 +950,15 @@ export default function DashboardClient({ initialQuizzes, serverIp }: DashboardC
                     </div>
 
                     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <Link
+                        href={`/dashboard/analytics/${quiz.id}`}
+                        title="View Submissions, Answer Sheets & Live Monitor"
+                        className="p-1.5 rounded-lg bg-[#0056D2]/10 hover:bg-[#0056D2]/20 text-[#0056D2] border border-[#0056D2]/20 transition flex items-center gap-1"
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        <span className="text-[11px] font-semibold hidden sm:inline">Analytics</span>
+                      </Link>
+
                       <button
                         onClick={(e) => handleCopyPracticeLink(e, quiz.id)}
                         title="Copy Student Practice Mode Link"
