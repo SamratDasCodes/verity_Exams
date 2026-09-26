@@ -17,6 +17,10 @@ import {
   deleteQuiz,
   deleteAttempt,
   clearAttemptsForQuiz,
+  fetchStudentAttempt,
+  fetchStudentActiveSession,
+  saveStudentSessionProgress,
+  autoFinalizeExpiredSessions,
 } from "@/lib/supabase/db";
 import {
   Quiz,
@@ -294,7 +298,8 @@ export async function submitQuizAttemptAction(
   userAnswers: Record<number, string>,
   servedOriginalIndices?: number[],
   tabSwitches: number = 0,
-  mode: "exam" | "practice" = "exam"
+  mode: "exam" | "practice" = "exam",
+  auto_submitted: boolean = false
 ): Promise<{
   success: boolean;
   result?: SubmissionResult;
@@ -346,10 +351,17 @@ export async function submitQuizAttemptAction(
       breakdown,
       userAnswers,
       tabSwitches,
-      mode
+      mode,
+      auto_submitted
     );
     // Mark live proctoring session as submitted
-    await recordStudentHeartbeat(quizId, cleanName, maxScore, maxScore, "submitted", tabSwitches);
+    await saveStudentSessionProgress(quizId, cleanName, {
+      status: "submitted",
+      auto_submitted,
+      answered_count: maxScore,
+      total_questions: maxScore,
+      tab_switches: tabSwitches,
+    });
 
     const percentage = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
 
@@ -364,6 +376,7 @@ export async function submitQuizAttemptAction(
         tab_switches: tabSwitches,
         mode,
         breakdown,
+        auto_submitted,
       },
     };
   } catch (err: unknown) {
@@ -396,6 +409,184 @@ export async function recordStudentHeartbeatAction(
     return { success: true, session };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Error updating heartbeat";
+    return { success: false, error: message };
+  }
+}
+
+// 6a. Check Existing Student Session on Login / Re-login
+export async function checkStudentSessionAction(
+  quizId: string,
+  traineeName: string
+): Promise<{
+  success: boolean;
+  status: "none" | "in_progress" | "completed" | "auto_submitted";
+  session?: ActiveStudentSession;
+  attempt?: Attempt;
+  submissionResult?: SubmissionResult;
+  secondsLeft?: number;
+  message?: string;
+  error?: string;
+}> {
+  if (!quizId || !traineeName?.trim()) {
+    return { success: false, status: "none", error: "Missing quizId or traineeName" };
+  }
+  const cleanName = traineeName.trim();
+  try {
+    // 1. Auto-finalize any sessions that expired
+    await autoFinalizeExpiredSessions(quizId);
+
+    // 2. Check if a completed attempt exists
+    const completedAttempt = await fetchStudentAttempt(quizId, cleanName);
+    if (completedAttempt) {
+      const isAuto = Boolean(completedAttempt.auto_submitted);
+      return {
+        success: true,
+        status: isAuto ? "auto_submitted" : "completed",
+        attempt: completedAttempt,
+        submissionResult: {
+          attemptId: completedAttempt.id,
+          traineeName: completedAttempt.trainee_name,
+          score: completedAttempt.score,
+          maxScore: completedAttempt.max_score,
+          percentage:
+            completedAttempt.max_score > 0
+              ? Math.round((completedAttempt.score / completedAttempt.max_score) * 100)
+              : 0,
+          tab_switches: completedAttempt.tab_switches,
+          mode: completedAttempt.mode,
+          breakdown: completedAttempt.breakdown || [],
+          auto_submitted: isAuto,
+        },
+        message: isAuto
+          ? "⚠️ Time Expired: You previously started this exam and left without submitting. Your exam was automatically finalized and submitted when the allocated due time expired."
+          : `Assessment Completed: You have already completed and submitted this assessment on ${new Date(
+              completedAttempt.submitted_at
+            ).toLocaleDateString()}.`,
+      };
+    }
+
+    // 3. Check for an in-progress session
+    const activeSession = await fetchStudentActiveSession(quizId, cleanName);
+    if (activeSession && activeSession.status === "in_progress") {
+      let secondsLeft: number | undefined = undefined;
+      if (activeSession.expires_at) {
+        const expMs = new Date(activeSession.expires_at).getTime();
+        const diffSec = Math.round((expMs - Date.now()) / 1000);
+        if (diffSec <= 0) {
+          // Time expired right now, run auto finalize
+          await autoFinalizeExpiredSessions(quizId);
+          const autoAttempt = await fetchStudentAttempt(quizId, cleanName);
+          if (autoAttempt) {
+            return {
+              success: true,
+              status: "auto_submitted",
+              attempt: autoAttempt,
+              submissionResult: {
+                attemptId: autoAttempt.id,
+                traineeName: autoAttempt.trainee_name,
+                score: autoAttempt.score,
+                maxScore: autoAttempt.max_score,
+                percentage:
+                  autoAttempt.max_score > 0
+                    ? Math.round((autoAttempt.score / autoAttempt.max_score) * 100)
+                    : 0,
+                tab_switches: autoAttempt.tab_switches,
+                mode: autoAttempt.mode,
+                breakdown: autoAttempt.breakdown || [],
+                auto_submitted: true,
+              },
+              message:
+                "⚠️ Time Expired: Your allocated exam time has passed. Your answers have been automatically submitted.",
+            };
+          }
+        }
+        secondsLeft = Math.max(1, diffSec);
+      }
+
+      const answeredCount = activeSession.answers ? Object.keys(activeSession.answers).length : 0;
+      return {
+        success: true,
+        status: "in_progress",
+        session: activeSession,
+        secondsLeft,
+        message: `Welcome back, ${activeSession.trainee_name}! We found your in-progress exam. Resuming from Question ${
+          (activeSession.current_question_idx || 0) + 1
+        } with ${answeredCount} saved answers.`,
+      };
+    }
+
+    return { success: true, status: "none" };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Error checking student session";
+    return { success: false, status: "none", error: message };
+  }
+}
+
+// 6b. Start / Initialize Active Student Session
+export async function startStudentSessionAction(
+  quizId: string,
+  traineeName: string,
+  totalQuestions: number,
+  servedIndices: number[],
+  timeLimitMinutes?: number,
+  mode: "exam" | "practice" = "exam"
+): Promise<{ success: boolean; session?: ActiveStudentSession; error?: string }> {
+  if (!quizId || !traineeName?.trim()) {
+    return { success: false, error: "Missing required parameters" };
+  }
+  const cleanName = traineeName.trim();
+  const now = new Date();
+  const expiresAt =
+    timeLimitMinutes && timeLimitMinutes > 0
+      ? new Date(now.getTime() + timeLimitMinutes * 60 * 1000).toISOString()
+      : undefined;
+
+  try {
+    const session = await saveStudentSessionProgress(quizId, cleanName, {
+      total_questions: totalQuestions,
+      answered_count: 0,
+      current_question_idx: 0,
+      answers: {},
+      served_indices: servedIndices,
+      status: "in_progress",
+      mode,
+      started_at: now.toISOString(),
+      expires_at: expiresAt,
+      tab_switches: 0,
+    });
+    return { success: true, session };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Error starting student session";
+    return { success: false, error: message };
+  }
+}
+
+// 6c. Save Student Progress (Called on "Next", Option Select, and Nav)
+export async function saveStudentProgressAction(
+  quizId: string,
+  traineeName: string,
+  currentQuestionIdx: number,
+  answers: Record<number, string>,
+  servedIndices?: number[],
+  tabSwitches: number = 0,
+  mode: "exam" | "practice" = "exam"
+): Promise<{ success: boolean; session?: ActiveStudentSession; error?: string }> {
+  if (!quizId || !traineeName?.trim()) {
+    return { success: false, error: "Missing required parameters" };
+  }
+  try {
+    const session = await saveStudentSessionProgress(quizId, traineeName.trim(), {
+      current_question_idx: currentQuestionIdx,
+      answers,
+      answered_count: Object.keys(answers).length,
+      served_indices: servedIndices,
+      tab_switches: tabSwitches,
+      mode,
+      status: "in_progress",
+    });
+    return { success: true, session };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Error saving student progress";
     return { success: false, error: message };
   }
 }

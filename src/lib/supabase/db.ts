@@ -293,6 +293,7 @@ export async function appendQuestionsToQuiz(
 }
 
 export async function fetchAttemptsByQuizId(quizId: string): Promise<Attempt[]> {
+  await autoFinalizeExpiredSessions(quizId);
   const supabase = getSupabaseClient();
   if (supabase) {
     const { data, error } = await supabase
@@ -332,7 +333,8 @@ export async function insertAttempt(
   breakdown?: QuestionBreakdown[],
   answers?: Record<number, string>,
   tab_switches: number = 0,
-  mode: "exam" | "practice" = "exam"
+  mode: "exam" | "practice" = "exam",
+  auto_submitted: boolean = false
 ): Promise<Attempt> {
   const supabase = getSupabaseClient();
   if (supabase) {
@@ -342,6 +344,7 @@ export async function insertAttempt(
       score,
       max_score: maxScore,
       tab_switches,
+      auto_submitted,
     };
     // Per user instructions: do NOT save heavy breakdown or answer lists for practice mode
     if (mode === "exam") {
@@ -356,7 +359,7 @@ export async function insertAttempt(
       .single();
 
     if (error && error.message?.includes("column")) {
-      // Fallback if remote schema doesn't yet have tab_switches column
+      // Fallback if remote schema doesn't yet have tab_switches or auto_submitted column
       const fallbackPayload: Record<string, unknown> = {
         quiz_id: quizId,
         trainee_name: traineeName,
@@ -384,6 +387,7 @@ export async function insertAttempt(
         answers: mode === "exam" ? answers : undefined,
         tab_switches,
         mode,
+        auto_submitted,
       } as Attempt;
     }
     console.warn("Supabase insert attempt failed, saving to local store:", error?.message);
@@ -398,6 +402,7 @@ export async function insertAttempt(
     max_score: maxScore,
     tab_switches,
     mode,
+    auto_submitted,
     breakdown: mode === "exam" ? breakdown : undefined,
     answers: mode === "exam" ? answers : undefined,
     submitted_at: new Date().toISOString(),
@@ -407,13 +412,84 @@ export async function insertAttempt(
   return newAttempt;
 }
 
-export async function recordStudentHeartbeat(
+export async function fetchStudentAttempt(
+  quizId: string,
+  traineeName: string
+): Promise<Attempt | null> {
+  const cleanName = traineeName.trim().toLowerCase();
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from("attempts")
+        .select("*")
+        .eq("quiz_id", quizId)
+        .ilike("trainee_name", cleanName)
+        .order("submitted_at", { ascending: false })
+        .limit(1);
+      if (!error && data && data.length > 0) {
+        return data[0] as Attempt;
+      }
+    } catch (err) {
+      console.warn("Supabase fetchStudentAttempt error:", err);
+    }
+  }
+
+  const store = getLocalStore();
+  if (!store.attempts) return null;
+  const found = store.attempts.find(
+    (a) => a.quiz_id === quizId && a.trainee_name.toLowerCase() === cleanName
+  );
+  return found || null;
+}
+
+export async function fetchStudentActiveSession(
+  quizId: string,
+  traineeName: string
+): Promise<ActiveStudentSession | null> {
+  const cleanName = traineeName.trim().toLowerCase();
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from("live_sessions")
+        .select("*")
+        .eq("quiz_id", quizId)
+        .ilike("trainee_name", cleanName)
+        .order("last_active", { ascending: false })
+        .limit(1);
+      if (!error && data && data.length > 0) {
+        return data[0] as ActiveStudentSession;
+      }
+    } catch (err) {
+      console.warn("Supabase fetchStudentActiveSession error:", err);
+    }
+  }
+
+  const store = getLocalStore();
+  if (!store.live_sessions) return null;
+  const found = store.live_sessions.find(
+    (s) => s.quiz_id === quizId && s.trainee_name.toLowerCase() === cleanName
+  );
+  return found || null;
+}
+
+export async function saveStudentSessionProgress(
   quizId: string,
   traineeName: string,
-  answeredCount: number,
-  totalQuestions: number,
-  status: "in_progress" | "submitted" = "in_progress",
-  tabSwitches: number = 0
+  updates: {
+    answered_count?: number;
+    total_questions?: number;
+    current_question_idx?: number;
+    answers?: Record<number, string>;
+    served_indices?: number[];
+    tab_switches?: number;
+    status?: "in_progress" | "submitted";
+    mode?: "exam" | "practice";
+    started_at?: string;
+    expires_at?: string;
+    auto_submitted?: boolean;
+  }
 ): Promise<ActiveStudentSession> {
   const cleanName = traineeName.trim();
   const now = new Date().toISOString();
@@ -423,21 +499,19 @@ export async function recordStudentHeartbeat(
     try {
       const { data: existing } = await supabase
         .from("live_sessions")
-        .select("id")
+        .select("*")
         .eq("quiz_id", quizId)
         .ilike("trainee_name", cleanName)
         .limit(1);
 
       if (existing && existing.length > 0) {
+        const updatePayload: Record<string, unknown> = {
+          last_active: now,
+          ...updates,
+        };
         const { data, error } = await supabase
           .from("live_sessions")
-          .update({
-            answered_count: answeredCount,
-            total_questions: totalQuestions,
-            status,
-            tab_switches: tabSwitches,
-            last_active: now,
-          })
+          .update(updatePayload)
           .eq("id", existing[0].id)
           .select()
           .single();
@@ -446,19 +520,19 @@ export async function recordStudentHeartbeat(
           return data as ActiveStudentSession;
         }
       } else {
+        const insertPayload: Record<string, unknown> = {
+          quiz_id: quizId,
+          trainee_name: cleanName,
+          last_active: now,
+          started_at: updates.started_at || now,
+          answered_count: updates.answered_count || 0,
+          total_questions: updates.total_questions || 0,
+          status: updates.status || "in_progress",
+          ...updates,
+        };
         const { data, error } = await supabase
           .from("live_sessions")
-          .insert([
-            {
-              quiz_id: quizId,
-              trainee_name: cleanName,
-              answered_count: answeredCount,
-              total_questions: totalQuestions,
-              status,
-              tab_switches: tabSwitches,
-              last_active: now,
-            },
-          ])
+          .insert([insertPayload])
           .select()
           .single();
 
@@ -467,7 +541,7 @@ export async function recordStudentHeartbeat(
         }
       }
     } catch (err) {
-      console.warn("Supabase recordStudentHeartbeat error:", err);
+      console.warn("Supabase saveStudentSessionProgress error:", err);
     }
   }
 
@@ -481,11 +555,13 @@ export async function recordStudentHeartbeat(
   );
 
   if (existingIdx !== -1) {
-    store.live_sessions[existingIdx].answered_count = answeredCount;
-    store.live_sessions[existingIdx].total_questions = totalQuestions;
-    store.live_sessions[existingIdx].status = status;
-    store.live_sessions[existingIdx].tab_switches = tabSwitches;
-    store.live_sessions[existingIdx].last_active = now;
+    const existing = store.live_sessions[existingIdx];
+    store.live_sessions[existingIdx] = {
+      ...existing,
+      ...updates,
+      last_active: now,
+      started_at: existing.started_at || updates.started_at || now,
+    };
     saveLocalStore(store);
     return store.live_sessions[existingIdx];
   } else {
@@ -493,11 +569,18 @@ export async function recordStudentHeartbeat(
       id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}`,
       quiz_id: quizId,
       trainee_name: cleanName,
-      answered_count: answeredCount,
-      total_questions: totalQuestions,
-      status,
-      tab_switches: tabSwitches,
+      answered_count: updates.answered_count || (updates.answers ? Object.keys(updates.answers).length : 0),
+      total_questions: updates.total_questions || 0,
+      status: updates.status || "in_progress",
+      tab_switches: updates.tab_switches || 0,
       last_active: now,
+      started_at: updates.started_at || now,
+      expires_at: updates.expires_at,
+      current_question_idx: updates.current_question_idx || 0,
+      answers: updates.answers || {},
+      served_indices: updates.served_indices,
+      mode: updates.mode || "exam",
+      auto_submitted: updates.auto_submitted,
     };
     store.live_sessions.unshift(newSession);
     saveLocalStore(store);
@@ -505,7 +588,153 @@ export async function recordStudentHeartbeat(
   }
 }
 
+export async function recordStudentHeartbeat(
+  quizId: string,
+  traineeName: string,
+  answeredCount: number,
+  totalQuestions: number,
+  status: "in_progress" | "submitted" = "in_progress",
+  tabSwitches: number = 0
+): Promise<ActiveStudentSession> {
+  return saveStudentSessionProgress(quizId, traineeName, {
+    answered_count: answeredCount,
+    total_questions: totalQuestions,
+    status,
+    tab_switches: tabSwitches,
+  });
+}
+
+export async function autoFinalizeExpiredSessions(quizId?: string): Promise<Attempt[]> {
+  const nowMs = Date.now();
+  const autoSubmittedAttempts: Attempt[] = [];
+
+  // 1. Fetch relevant quizzes to grade against
+  const allQuizzes = await fetchAllQuizzes();
+  const quizzesMap = new Map<string, Quiz>();
+  for (const q of allQuizzes) {
+    quizzesMap.set(q.id, q);
+  }
+
+  // 2. Fetch live sessions
+  let sessionsToEvaluate: ActiveStudentSession[] = [];
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      let query = supabase.from("live_sessions").select("*").eq("status", "in_progress");
+      if (quizId) {
+        query = query.eq("quiz_id", quizId);
+      }
+      const { data, error } = await query;
+      if (!error && data) {
+        sessionsToEvaluate = data as ActiveStudentSession[];
+      }
+    } catch (err) {
+      console.warn("Supabase fetch expired sessions error:", err);
+    }
+  }
+
+  const store = getLocalStore();
+  if (store.live_sessions) {
+    const localMatches = store.live_sessions.filter((s) => {
+      if (s.status !== "in_progress") return false;
+      if (quizId && s.quiz_id !== quizId) return false;
+      return true;
+    });
+    for (const ls of localMatches) {
+      if (!sessionsToEvaluate.some((s) => s.id === ls.id || (s.quiz_id === ls.quiz_id && s.trainee_name.toLowerCase() === ls.trainee_name.toLowerCase()))) {
+        sessionsToEvaluate.push(ls);
+      }
+    }
+  }
+
+  for (const session of sessionsToEvaluate) {
+    const q = quizzesMap.get(session.quiz_id);
+    if (!q) continue;
+
+    // Check if session has an expires_at or calculate from started_at + time_limit_minutes
+    let isExpired = false;
+
+    if (session.expires_at) {
+      const expMs = new Date(session.expires_at).getTime();
+      if (!isNaN(expMs) && expMs <= nowMs) {
+        isExpired = true;
+      }
+    } else if (q.time_limit_minutes && q.time_limit_minutes > 0) {
+      const startMs = session.started_at ? new Date(session.started_at).getTime() : new Date(session.last_active).getTime();
+      const limitMs = q.time_limit_minutes * 60 * 1000;
+      if (!isNaN(startMs) && startMs + limitMs <= nowMs) {
+        isExpired = true;
+      }
+    }
+
+    if (isExpired) {
+      // Check if attempt already exists to prevent duplicate submission
+      const existingAttempt = await fetchStudentAttempt(session.quiz_id, session.trainee_name);
+      if (existingAttempt) {
+        await saveStudentSessionProgress(session.quiz_id, session.trainee_name, {
+          status: "submitted",
+          auto_submitted: true,
+        });
+        continue;
+      }
+
+      // Grade the saved answers
+      const allQuestions = q.raw_json;
+      const userAnswers = session.answers || {};
+      const indicesToGrade =
+        session.served_indices && session.served_indices.length > 0
+          ? session.served_indices
+          : allQuestions.map((_, idx) => idx);
+
+      const maxScore = indicesToGrade.length;
+      let score = 0;
+
+      const breakdown = indicesToGrade.map((origIdx, servedIdx) => {
+        const item = allQuestions[origIdx];
+        const selected = userAnswers[servedIdx] || "";
+        const isCorrect = Boolean(item && selected.trim() === item.correct_answer.trim());
+        if (isCorrect) score += 1;
+        return {
+          questionIndex: servedIdx,
+          originalIndex: origIdx,
+          question: item?.question || `Question ${servedIdx + 1}`,
+          selectedAnswer: selected,
+          correctAnswer: item?.correct_answer || "",
+          isCorrect,
+          explanation: item?.explanation,
+        };
+      });
+
+      // Insert auto-submitted attempt
+      const newAttempt = await insertAttempt(
+        session.quiz_id,
+        session.trainee_name,
+        score,
+        maxScore,
+        breakdown,
+        userAnswers,
+        session.tab_switches || 0,
+        session.mode || "exam",
+        true // auto_submitted = true
+      );
+
+      // Update session status
+      await saveStudentSessionProgress(session.quiz_id, session.trainee_name, {
+        status: "submitted",
+        auto_submitted: true,
+        answered_count: Object.keys(userAnswers).length,
+      });
+
+      autoSubmittedAttempts.push(newAttempt);
+    }
+  }
+
+  return autoSubmittedAttempts;
+}
+
 export async function fetchLiveStudentSessions(quizId: string): Promise<ActiveStudentSession[]> {
+  await autoFinalizeExpiredSessions(quizId);
+
   const supabase = getSupabaseClient();
   if (supabase) {
     try {

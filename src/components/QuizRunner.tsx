@@ -29,7 +29,13 @@ import {
   Sliders,
   BookOpen,
 } from "lucide-react";
-import { submitQuizAttemptAction, recordStudentHeartbeatAction } from "@/app/actions/quiz";
+import {
+  submitQuizAttemptAction,
+  recordStudentHeartbeatAction,
+  checkStudentSessionAction,
+  startStudentSessionAction,
+  saveStudentProgressAction,
+} from "@/app/actions/quiz";
 import { QuizPublic, SubmissionResult, PublicQuestionItem } from "@/lib/types";
 
 interface QuizRunnerProps {
@@ -111,6 +117,8 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
   const [nameError, setNameError] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState(false);
   const [fullscreenWarning, setFullscreenWarning] = useState(false);
+  const [resumedNotice, setResumedNotice] = useState<string | null>(null);
+  const [checkingSession, setCheckingSession] = useState(false);
 
   // -------------------------------------------------------------
   // Configurable Exam Timer
@@ -368,64 +376,212 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
   const handleStartQuiz = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!traineeName.trim()) {
+    const cleanName = traineeName.trim();
+    if (!cleanName) {
       setNameError("Please enter your name to begin.");
       return;
     }
     setNameError(null);
+    setCheckingSession(true);
 
-    // Request full screen (non-blocking so mobile rejections or restrictions do not stall exam start)
-    requestFullscreenMode().catch(() => {});
-
-    // Lock session questions and trainee name
     try {
-      sessionStorage.setItem(`active_exam_questions_${quiz.id}`, JSON.stringify(examQuestions));
-      sessionStorage.setItem(`active_exam_name_${quiz.id}`, traineeName.trim());
-      sessionStorage.setItem(`active_exam_step_${quiz.id}`, "in_progress");
-      if (quiz.time_limit_minutes) {
-        sessionStorage.setItem(`active_exam_time_${quiz.id}`, (quiz.time_limit_minutes * 60).toString());
-      }
-    } catch {}
+      const checkRes = await checkStudentSessionAction(quiz.id, cleanName);
 
-    setStep("in_progress");
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (checkRes.status === "completed" || checkRes.status === "auto_submitted") {
+        if (checkRes.submissionResult) {
+          setSubmissionResult(checkRes.submissionResult);
+          setStep("completed");
+          if (checkRes.message) {
+            setResumedNotice(checkRes.message);
+          }
+          if (typeof window !== "undefined") {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+          setCheckingSession(false);
+          return;
+        }
+      }
+
+      if (checkRes.status === "in_progress" && checkRes.session) {
+        const sess = checkRes.session;
+        if (sess.served_indices && sess.served_indices.length > 0) {
+          const qMap = new Map(quiz.questions.map((q) => [q.originalIndex, q]));
+          const restored = sess.served_indices
+            .map((origIdx) => qMap.get(origIdx))
+            .filter(Boolean) as PublicQuestionItem[];
+          if (restored.length > 0) {
+            setExamQuestions(restored);
+          }
+        }
+
+        const restoredAnswers = sess.answers || {};
+        setAnswers(restoredAnswers);
+        const restoredIdx = Math.min(
+          sess.current_question_idx || 0,
+          (sess.served_indices?.length || quiz.questions.length) - 1
+        );
+        setCurrentQuestionIdx(restoredIdx);
+        setTabSwitches(sess.tab_switches || 0);
+
+        if (checkRes.secondsLeft !== undefined) {
+          setSecondsLeft(checkRes.secondsLeft);
+        }
+
+        try {
+          sessionStorage.setItem(`active_exam_name_${quiz.id}`, cleanName);
+          sessionStorage.setItem(`active_exam_step_${quiz.id}`, "in_progress");
+          sessionStorage.setItem(`active_exam_answers_${quiz.id}`, JSON.stringify(restoredAnswers));
+          if (checkRes.secondsLeft !== undefined) {
+            sessionStorage.setItem(`active_exam_time_${quiz.id}`, checkRes.secondsLeft.toString());
+          }
+        } catch {}
+
+        setResumedNotice(checkRes.message || `Resumed session for ${cleanName}.`);
+        setTimeout(() => setResumedNotice(null), 8000);
+        requestFullscreenMode().catch(() => {});
+        setStep("in_progress");
+        if (typeof window !== "undefined") {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+        setCheckingSession(false);
+        return;
+      }
+
+      // Fresh Exam Start
+      const servedIndices = examQuestions.map((q) => q.originalIndex);
+      await startStudentSessionAction(
+        quiz.id,
+        cleanName,
+        totalQuestions,
+        servedIndices,
+        quiz.time_limit_minutes,
+        "exam"
+      );
+
+      requestFullscreenMode().catch(() => {});
+
+      try {
+        sessionStorage.setItem(`active_exam_questions_${quiz.id}`, JSON.stringify(examQuestions));
+        sessionStorage.setItem(`active_exam_name_${quiz.id}`, cleanName);
+        sessionStorage.setItem(`active_exam_step_${quiz.id}`, "in_progress");
+        if (quiz.time_limit_minutes) {
+          sessionStorage.setItem(`active_exam_time_${quiz.id}`, (quiz.time_limit_minutes * 60).toString());
+        }
+      } catch {}
+
+      setStep("in_progress");
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    } catch (err) {
+      console.error("Start quiz session error:", err);
+      setStep("in_progress");
+    } finally {
+      setCheckingSession(false);
     }
-    recordStudentHeartbeatAction(quiz.id, traineeName.trim(), 0, totalQuestions, "in_progress", tabSwitches);
   };
 
-  const handleStartPractice = (e: React.FormEvent) => {
+  const handleStartPractice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!traineeName.trim()) {
+    const cleanName = traineeName.trim();
+    if (!cleanName) {
       setNameError("Please enter your name to begin your practice session.");
       return;
     }
     setNameError(null);
-
-    // Shuffle and sample the requested number of questions
-    const pool = [...matchingQuestions];
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-
-    const count = Math.min(Math.max(1, practiceQuestionCount), pool.length);
-    const selected = pool.slice(0, count);
-
-    setExamQuestions(selected);
-    setCurrentQuestionIdx(0);
-    setAnswers({});
-    setMarkedForReview({});
+    setCheckingSession(true);
 
     try {
-      sessionStorage.setItem(`active_exam_questions_${quiz.id}`, JSON.stringify(selected));
-      sessionStorage.setItem(`active_exam_name_${quiz.id}`, traineeName.trim());
-      sessionStorage.setItem(`active_exam_step_${quiz.id}`, "in_progress");
-    } catch {}
+      const checkRes = await checkStudentSessionAction(quiz.id, cleanName);
 
-    setStep("in_progress");
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (checkRes.status === "completed" || checkRes.status === "auto_submitted") {
+        if (checkRes.submissionResult) {
+          setSubmissionResult(checkRes.submissionResult);
+          setStep("completed");
+          if (checkRes.message) setResumedNotice(checkRes.message);
+          if (typeof window !== "undefined") {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+          setCheckingSession(false);
+          return;
+        }
+      }
+
+      if (checkRes.status === "in_progress" && checkRes.session) {
+        const sess = checkRes.session;
+        if (sess.served_indices && sess.served_indices.length > 0) {
+          const qMap = new Map(quiz.questions.map((q) => [q.originalIndex, q]));
+          const restored = sess.served_indices
+            .map((origIdx) => qMap.get(origIdx))
+            .filter(Boolean) as PublicQuestionItem[];
+          if (restored.length > 0) {
+            setExamQuestions(restored);
+          }
+        }
+        const restoredAnswers = sess.answers || {};
+        setAnswers(restoredAnswers);
+        const restoredIdx = Math.min(
+          sess.current_question_idx || 0,
+          (sess.served_indices?.length || quiz.questions.length) - 1
+        );
+        setCurrentQuestionIdx(restoredIdx);
+
+        try {
+          sessionStorage.setItem(`active_exam_name_${quiz.id}`, cleanName);
+          sessionStorage.setItem(`active_exam_step_${quiz.id}`, "in_progress");
+          sessionStorage.setItem(`active_exam_answers_${quiz.id}`, JSON.stringify(restoredAnswers));
+        } catch {}
+
+        setResumedNotice(checkRes.message || `Resumed practice drill for ${cleanName}.`);
+        setTimeout(() => setResumedNotice(null), 8000);
+        setStep("in_progress");
+        if (typeof window !== "undefined") {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+        setCheckingSession(false);
+        return;
+      }
+
+      // Fresh practice session
+      const pool = [...matchingQuestions];
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+
+      const count = Math.min(Math.max(1, practiceQuestionCount), pool.length);
+      const selected = pool.slice(0, count);
+
+      setExamQuestions(selected);
+      setCurrentQuestionIdx(0);
+      setAnswers({});
+      setMarkedForReview({});
+
+      const servedIndices = selected.map((q) => q.originalIndex);
+      await startStudentSessionAction(
+        quiz.id,
+        cleanName,
+        selected.length,
+        servedIndices,
+        undefined,
+        "practice"
+      );
+
+      try {
+        sessionStorage.setItem(`active_exam_questions_${quiz.id}`, JSON.stringify(selected));
+        sessionStorage.setItem(`active_exam_name_${quiz.id}`, cleanName);
+        sessionStorage.setItem(`active_exam_step_${quiz.id}`, "in_progress");
+      } catch {}
+
+      setStep("in_progress");
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    } catch (err) {
+      console.error("Start practice session error:", err);
+      setStep("in_progress");
+    } finally {
+      setCheckingSession(false);
     }
   };
 
@@ -465,14 +621,17 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
     try {
       sessionStorage.setItem(`active_exam_answers_${quiz.id}`, JSON.stringify(updated));
     } catch {}
-    if (!isPracticeMode) {
-      recordStudentHeartbeatAction(
+
+    // Persist to server on option select
+    if (traineeName) {
+      saveStudentProgressAction(
         quiz.id,
         traineeName,
-        Object.keys(updated).length,
-        totalQuestions,
-        "in_progress",
-        tabSwitches
+        currentQuestionIdx,
+        updated,
+        examQuestions.map((q) => q.originalIndex),
+        tabSwitches,
+        isPracticeMode ? "practice" : "exam"
       );
     }
   };
@@ -492,18 +651,45 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
   const handleNext = () => {
     if (currentQuestionIdx < totalQuestions - 1) {
-      setCurrentQuestionIdx((prev) => prev + 1);
+      const nextIdx = currentQuestionIdx + 1;
+      setCurrentQuestionIdx(nextIdx);
       if (typeof window !== "undefined") {
         window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      // Persist answers on next for future access
+      if (traineeName) {
+        saveStudentProgressAction(
+          quiz.id,
+          traineeName,
+          nextIdx,
+          answers,
+          examQuestions.map((q) => q.originalIndex),
+          tabSwitches,
+          isPracticeMode ? "practice" : "exam"
+        );
       }
     }
   };
 
   const handlePrev = () => {
     if (currentQuestionIdx > 0) {
-      setCurrentQuestionIdx((prev) => prev - 1);
+      const prevIdx = currentQuestionIdx - 1;
+      setCurrentQuestionIdx(prevIdx);
       if (typeof window !== "undefined") {
         window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      if (traineeName) {
+        saveStudentProgressAction(
+          quiz.id,
+          traineeName,
+          prevIdx,
+          answers,
+          examQuestions.map((q) => q.originalIndex),
+          tabSwitches,
+          isPracticeMode ? "practice" : "exam"
+        );
       }
     }
   };
@@ -845,10 +1031,15 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
                 <button
                   type="submit"
-                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-[#0056D2] to-blue-600 hover:from-[#0045A8] hover:to-blue-700 text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2"
+                  disabled={checkingSession}
+                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-[#0056D2] to-blue-600 hover:from-[#0045A8] hover:to-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>Start Practice ({practiceQuestionCount} Questions)</span>
+                  <span>
+                    {checkingSession
+                      ? "Verifying Previous Session..."
+                      : `Start Practice (${practiceQuestionCount} Questions)`}
+                  </span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </form>
@@ -961,9 +1152,14 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
 
               <button
                 type="submit"
-                className="w-full py-3 px-4 rounded-lg bg-[#0056D2] hover:bg-[#0045A8] text-white font-semibold shadow transition flex items-center justify-center gap-2"
+                disabled={checkingSession}
+                className="w-full py-3 px-4 rounded-lg bg-[#0056D2] hover:bg-[#0045A8] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold shadow transition flex items-center justify-center gap-2"
               >
-                <span>Enter Full-Screen & Start</span>
+                <span>
+                  {checkingSession
+                    ? "Checking Previous Session..."
+                    : "Enter Full-Screen & Start"}
+                </span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
@@ -998,6 +1194,14 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs sm:text-sm font-semibold border border-red-700 animate-bounce">
             <AlertTriangle className="w-5 h-5 text-yellow-300 shrink-0" />
             <span>Page refresh is disabled during the exam! Please continue answering your questions.</span>
+          </div>
+        )}
+
+        {/* Resumed Session Welcome Toast */}
+        {resumedNotice && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm font-semibold border border-emerald-700 animate-bounce max-w-md w-[90%]">
+            <CheckCircle2 className="w-5 h-5 text-emerald-200 shrink-0" />
+            <span>{resumedNotice}</span>
           </div>
         )}
 
@@ -1442,6 +1646,17 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
                       if (typeof window !== "undefined") {
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }
+                      if (traineeName) {
+                        saveStudentProgressAction(
+                          quiz.id,
+                          traineeName,
+                          i,
+                          answers,
+                          examQuestions.map((q) => q.originalIndex),
+                          tabSwitches,
+                          isPracticeMode ? "practice" : "exam"
+                        );
+                      }
                     }}
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 ${btnClass}`}
                   >
@@ -1660,6 +1875,18 @@ export default function QuizRunner({ quiz }: QuizRunnerProps) {
               <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-600 dark:text-emerald-300 text-xs font-semibold">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Clean Proctoring: 0 tab switches</span>
+              </div>
+            )}
+
+            {submissionResult?.auto_submitted && (
+              <div className="mt-4 max-w-md mx-auto p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs text-left flex items-start gap-2.5 shadow-sm">
+                <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-bold text-amber-900 dark:text-amber-100">Automatically Submitted (Due Time Expired)</p>
+                  <p className="mt-0.5 opacity-90 leading-relaxed">
+                    This assessment was automatically submitted because the exam time limit elapsed while the test was in progress. Your recorded answers up to that point have been finalized and graded.
+                  </p>
+                </div>
               </div>
             )}
 

@@ -640,6 +640,12 @@ export default function QuizAnalyticsClient({
                                         Practice
                                       </span>
                                     )}
+                                    {attempt.auto_submitted && (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold flex items-center gap-1">
+                                        <Clock className="w-3 h-3 text-purple-500" />
+                                        Auto-Submitted
+                                      </span>
+                                    )}
                                     {attempt.tab_switches && attempt.tab_switches > 0 ? (
                                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold flex items-center gap-1">
                                         ⚠️ {attempt.tab_switches} tab switch{attempt.tab_switches > 1 ? "es" : ""}
@@ -770,19 +776,30 @@ export default function QuizAnalyticsClient({
                             <div className="min-w-0">
                               <h4 className="font-extrabold text-gray-900 text-sm truncate">{session.trainee_name}</h4>
                               <p className="text-[11px] text-gray-500 mt-0.5">
-                                {isSubmitted ? "Exam finished" : "In examination"}
+                                {session.auto_submitted
+                                  ? "Time expired (Auto-finalized)"
+                                  : isSubmitted
+                                  ? "Exam finished"
+                                  : "In examination"}
                               </p>
                             </div>
                           </div>
 
                           <span
                             className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5 shrink-0 border ${
-                              isSubmitted
+                              session.auto_submitted
+                                ? "bg-purple-100 text-purple-800 border-purple-200"
+                                : isSubmitted
                                 ? "bg-emerald-100 text-emerald-800 border-emerald-200"
                                 : "bg-blue-50 text-[#0056D2] border-blue-200"
                             }`}
                           >
-                            {isSubmitted ? (
+                            {session.auto_submitted ? (
+                              <>
+                                <Clock className="w-3.5 h-3.5 text-purple-600" />
+                                <span>Auto-Submitted</span>
+                              </>
+                            ) : isSubmitted ? (
                               <>
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                                 <span>Submitted</span>
@@ -872,6 +889,11 @@ export default function QuizAnalyticsClient({
                     <h3 className="font-extrabold text-base text-gray-900 truncate">
                       {inspectedAttempt.trainee_name}&apos;s Assessment Answer Sheet
                     </h3>
+                    {inspectedAttempt.auto_submitted && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300 font-bold flex items-center gap-1">
+                        ⏱️ Auto-submitted (Time Expired)
+                      </span>
+                    )}
                     {inspectedAttempt.tab_switches && inspectedAttempt.tab_switches > 0 ? (
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold flex items-center gap-1">
                         ⚠️ {inspectedAttempt.tab_switches} tab switch{inspectedAttempt.tab_switches > 1 ? "es" : ""}
@@ -895,6 +917,16 @@ export default function QuizAnalyticsClient({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Auto-submitted Notice Banner */}
+            {inspectedAttempt.auto_submitted && (
+              <div className="px-6 py-3 bg-purple-50 border-b border-purple-200 flex items-start sm:items-center gap-2.5 text-xs text-purple-900">
+                <Clock className="w-4 h-4 text-purple-600 shrink-0 mt-0.5 sm:mt-0" />
+                <span>
+                  <strong>Automatic Submission Notice:</strong> This assessment was automatically submitted because the examinee left without submitting and the allocated time limit expired. Saved answers up to that point were graded.
+                </span>
+              </div>
+            )}
 
             {/* Filter Tabs */}
             <div className="px-6 py-3 border-b border-gray-200 bg-white flex items-center gap-2">

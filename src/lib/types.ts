@@ -52,6 +52,13 @@ export interface ActiveStudentSession {
   status: "in_progress" | "submitted";
   tab_switches?: number;
   last_active: string;
+  started_at?: string;
+  expires_at?: string;
+  current_question_idx?: number;
+  answers?: Record<number, string>;
+  served_indices?: number[];
+  mode?: "exam" | "practice";
+  auto_submitted?: boolean;
 }
 
 export interface Attempt {
@@ -65,6 +72,7 @@ export interface Attempt {
   breakdown?: QuestionBreakdown[];
   answers?: Record<number, string>;
   submitted_at: string;
+  auto_submitted?: boolean;
 }
 
 export interface QuizWithStats extends Quiz {
@@ -91,4 +99,5 @@ export interface SubmissionResult {
   tab_switches?: number;
   mode?: "exam" | "practice";
   breakdown: QuestionBreakdown[];
+  auto_submitted?: boolean;
 }

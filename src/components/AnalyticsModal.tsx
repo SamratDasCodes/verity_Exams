@@ -799,6 +799,12 @@ export default function AnalyticsModal({
                                       Practice
                                     </span>
                                   )}
+                                  {attempt.auto_submitted && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold shrink-0 flex items-center gap-0.5">
+                                      <Clock className="w-3 h-3 text-purple-500" />
+                                      Auto-Submitted
+                                    </span>
+                                  )}
                                   {attempt.tab_switches && attempt.tab_switches > 0 ? (
                                     <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold shrink-0">
                                       ⚠️ {attempt.tab_switches} switch{attempt.tab_switches > 1 ? "es" : ""}
@@ -895,6 +901,12 @@ export default function AnalyticsModal({
                                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold flex items-center gap-1">
                                         <Lightbulb className="w-3 h-3 text-amber-500" />
                                         Practice
+                                      </span>
+                                    )}
+                                    {attempt.auto_submitted && (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold flex items-center gap-1">
+                                        <Clock className="w-3 h-3 text-purple-500" />
+                                        Auto-Submitted
                                       </span>
                                     )}
                                     {attempt.tab_switches && attempt.tab_switches > 0 ? (
@@ -1019,13 +1031,21 @@ export default function AnalyticsModal({
                                 )}
                               </div>
                               <p className="text-[11px] text-gray-500">
-                                {isSubmitted ? "Exam finished" : "Currently taking exam"}
+                                {session.auto_submitted
+                                  ? "Time expired (Auto-finalized)"
+                                  : isSubmitted
+                                  ? "Exam finished"
+                                  : "Currently taking exam"}
                               </p>
                             </div>
                           </div>
 
                           <div>
-                            {isSubmitted ? (
+                            {session.auto_submitted ? (
+                              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 font-semibold border border-purple-200 flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-purple-700" /> Auto-Submitted
+                              </span>
+                            ) : isSubmitted ? (
                               <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-green-100 text-green-800 font-semibold border border-green-200 flex items-center gap-1">
                                 <CheckCheck className="w-3 h-3 text-green-700" /> Submitted
                               </span>
@@ -1092,6 +1112,11 @@ export default function AnalyticsModal({
                     <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-blue-50 text-[#0056D2] font-semibold border border-blue-200 shrink-0">
                       {inspectedAttempt.score}/{inspectedAttempt.max_score || sampleMaxScore} Correct
                     </span>
+                    {inspectedAttempt.auto_submitted && (
+                      <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold border border-purple-200 shrink-0 flex items-center gap-1">
+                        ⏱️ Auto-submitted (Time Expired)
+                      </span>
+                    )}
                     {inspectedAttempt.tab_switches && inspectedAttempt.tab_switches > 0 ? (
                       <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold border border-amber-200 shrink-0 flex items-center gap-1">
                         ⚠️ {inspectedAttempt.tab_switches} Tab Switch{inspectedAttempt.tab_switches > 1 ? "es" : ""}
@@ -1115,6 +1140,16 @@ export default function AnalyticsModal({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Auto-submitted Notice Banner */}
+            {inspectedAttempt.auto_submitted && (
+              <div className="px-4 sm:px-6 py-3 bg-purple-50 border-b border-purple-200 flex items-start sm:items-center gap-2.5 text-xs text-purple-900">
+                <Clock className="w-4 h-4 text-purple-600 shrink-0 mt-0.5 sm:mt-0" />
+                <span>
+                  <strong>Automatic Submission Notice:</strong> This assessment was automatically submitted because the examinee left without submitting and the allocated time limit expired. Saved answers up to that point were graded.
+                </span>
+              </div>
+            )}
 
             {/* Filter Tabs Bar */}
             <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-white border-b border-gray-200 flex items-center justify-between flex-wrap gap-2 text-xs overflow-x-auto no-scrollbar">
